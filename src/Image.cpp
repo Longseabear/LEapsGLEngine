@@ -27,6 +27,7 @@ Image LEapsGL::Image::LoadImage(const char* path)
 {
 	Image img;
 	stbi_set_flip_vertically_on_load(true);
+    // must to add deconstructor..
 	img.pixels = std::shared_ptr<GLubyte>(stbi_load(path, &img.width, &img.height, &img.nrChannels, 0),
 		stbi_image_free);
 

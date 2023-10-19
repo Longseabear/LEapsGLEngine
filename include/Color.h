@@ -1,6 +1,8 @@
 #pragma once
 
-#define MAKE_COLOR_STATIC_VALUE(color, r,g,b,a) const Color Color::color = {r,g,b,a};
+#define MAKE_COLOR_STATIC_VALUE(color, r,g,b,a) \
+    constexpr LEapsGL::Color LEapsGL::Color::color = { r, g, b, a };
+
 namespace LEapsGL {
 	union Color {
 		struct { float r, g, b, a; };
@@ -19,3 +21,15 @@ namespace LEapsGL {
 		static const Color yellow;
 	};
 };
+
+inline MAKE_COLOR_STATIC_VALUE(black, 0.0f, 0.0f, 0.0f, 1.0f);
+inline MAKE_COLOR_STATIC_VALUE(blue, 0.0f, 0.0f, 1.0f, 1.0f);
+inline MAKE_COLOR_STATIC_VALUE(clear, 0.0f, 0.0f, 0.0f, 0.0f);
+inline MAKE_COLOR_STATIC_VALUE(cyan, 0.0f, 1.0f, 1.0f, 0.0f);
+inline MAKE_COLOR_STATIC_VALUE(gray, 0.5f, 0.5f, 0.5f, 1.0f);
+inline MAKE_COLOR_STATIC_VALUE(green, 0.0f, 0.1f, 0.0f, 1.0f);
+inline MAKE_COLOR_STATIC_VALUE(grey, 0.5f, 0.5f, 0.5f, 1.0f);
+inline MAKE_COLOR_STATIC_VALUE(magenta, 1.0f, 0.0f, 1.0f, 1.0f);
+inline MAKE_COLOR_STATIC_VALUE(red, 1.0f, 0.0f, 0.0f, 1.0f);
+inline MAKE_COLOR_STATIC_VALUE(white, 1.0f, 1.0f, 1.0f, 1.0f);
+inline MAKE_COLOR_STATIC_VALUE(yellow, 1.0f, 0.92f, 0.016f, 1.0f);
