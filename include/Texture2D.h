@@ -40,10 +40,11 @@ namespace LEapsGL {
 			swap(*this, other);
 			return *this;
 		}
-		Texture2D& operator=(Texture2D&& other) noexcept {
-			swap(*this, other);
-			return *this;
-		}
+        // don't need move operator in copy and swap idiom.
+		//Texture2D& operator=(Texture2D&& other) noexcept {
+		//	swap(*this, other);
+		//	return *this;
+		//}
 		friend void swap(Texture2D& lhs, Texture2D& rhs) {
 			using std::swap;
 			swap(lhs.format, rhs.format);

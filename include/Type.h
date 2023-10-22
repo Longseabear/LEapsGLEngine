@@ -40,6 +40,13 @@ namespace LEapsGL {
     template <int MaxSize>
     class FixedString {
     public:
+        struct FixedStringHashFn {
+            size_t operator()(const FixedString<MaxSize>& str) const {
+                std::hash<std::string> hasher;
+                return hasher(str.c_str());
+            }
+        };
+
         constexpr static size_t MAX_LEN = MaxSize - 1;
         FixedString() {
             _len = 0;
@@ -83,6 +90,7 @@ namespace LEapsGL {
             return strcmp(_data, other._data) == 0;
         }
 
+
     private:
         char _data[MaxSize];
         size_t _len;
@@ -95,77 +103,76 @@ namespace LEapsGL {
      *
      * @tparam MaxSize The maximum size of the string (in bytes).
      */
-    template <int MaxSize>
-    class FixedSizeHashString : public FixedString<MaxSize> {
-    public:
-        struct HashedFixedStringHash {
-            size_t operator()(const FixedSizeHashString<MaxSize>& str) const {
-                return str.getHash();
-            }
-        };
+    //template <int MaxSize>
+    //class FixedSizeHashString : public FixedString<MaxSize> {
+    //public:
+    //    struct HashedFixedStringHash {
+    //        size_t operator()(const FixedSizeHashString<MaxSize>& str) const {
+    //            return str.getHash();
+    //        }
+    //    };
 
-        struct HashedFixedStringEqual {
-            bool operator()(const FixedSizeHashString<MaxSize>& str1, const FixedSizeHashString<MaxSize>& str2) const {
-                return str1.getHash() == str2.getHash();
-            }
-        };
+    //    struct HashedFixedStringEqual {
+    //        bool operator()(const FixedSizeHashString<MaxSize>& str1, const FixedSizeHashString<MaxSize>& str2) const {
+    //            return str1.getHash() == str2.getHash();
+    //        }
+    //    };
 
+    //    /**
+    //     * @brief Default constructor. Initializes an empty string with a hash value of 0.
+    //     */
+    //    FixedSizeHashString() : FixedString<MaxSize>() {
+    //        _hash = 0;
+    //    }
 
-        /**
-         * @brief Default constructor. Initializes an empty string with a hash value of 0.
-         */
-        FixedSizeHashString() : FixedString<MaxSize>() {
-            _hash = 0;
-        }
+    //    /**
+    //     * @brief Constructor that initializes the string with the provided C-style string and calculates the hash.
+    //     *
+    //     * @param rhs The C-style string to initialize the object with.
+    //     */
+    //    FixedSizeHashString(const char* rhs) : FixedString<MaxSize>(rhs) {
+    //        updateHash();
+    //    }
 
-        /**
-         * @brief Constructor that initializes the string with the provided C-style string and calculates the hash.
-         *
-         * @param rhs The C-style string to initialize the object with.
-         */
-        FixedSizeHashString(const char* rhs) : FixedString<MaxSize>(rhs) {
-            updateHash();
-        }
+    //    /**
+    //     * @brief Copy constructor. Creates a copy of another HashedFixedString object.
+    //     *
+    //     * @param rhs The object to copy.
+    //     */
+    //    FixedSizeHashString(const FixedSizeHashString<MaxSize>& rhs) : FixedString<MaxSize>(rhs) {
+    //        _hash = rhs._hash;
+    //    }
 
-        /**
-         * @brief Copy constructor. Creates a copy of another HashedFixedString object.
-         *
-         * @param rhs The object to copy.
-         */
-        FixedSizeHashString(const FixedSizeHashString<MaxSize>& rhs) : FixedString<MaxSize>(rhs) {
-            _hash = rhs._hash;
-        }
+    //    /**
+    //     * @brief Assignment operator. Assigns the value of another HashedFixedString object.
+    //     *
+    //     * @param rhs The object to assign.
+    //     * @return The assigned object.
+    //     */
+    //    FixedSizeHashString& operator=(FixedSizeHashString<MaxSize> rhs) {
+    //        FixedString<MaxSize>::operator=(rhs);
+    //        _hash = rhs._hash;
+    //        return *this;
+    //    }
 
-        /**
-         * @brief Assignment operator. Assigns the value of another HashedFixedString object.
-         *
-         * @param rhs The object to assign.
-         * @return The assigned object.
-         */
-        FixedSizeHashString& operator=(FixedSizeHashString<MaxSize> rhs) {
-            FixedString<MaxSize>::operator=(rhs);
-            _hash = rhs._hash;
-            return *this;
-        }
+    //    /**
+    //     * @brief Get the hash value of the stored string.
+    //     *
+    //     * @return The hash value.
+    //     */
+    //    size_t getHash() const {
+    //        return _hash;
+    //    }
 
-        /**
-         * @brief Get the hash value of the stored string.
-         *
-         * @return The hash value.
-         */
-        size_t getHash() const {
-            return _hash;
-        }
+    //private:
+    //    size_t _hash; ///< The hash value of the stored string.
 
-    private:
-        size_t _hash; ///< The hash value of the stored string.
-
-        /**
-         * @brief Calculate and update the hash value of the stored string.
-         */
-        void updateHash() {
-            std::hash<std::string> hasher;
-            _hash = hasher(this->c_str());
-        }
-    };
+    //    /**
+    //     * @brief Calculate and update the hash value of the stored string.
+    //     */
+    //    void updateHash() {
+    //        std::hash<std::string> hasher;
+    //        _hash = hasher(this->c_str());
+    //    }
+    //};
 }

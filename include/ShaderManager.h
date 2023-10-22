@@ -53,12 +53,13 @@
 #include <filesystem>
 #include <optional>
 #include <Timer.h>
+#include <functional>
 
 using namespace std;
 
 #define PRINT_NAME(name) (#name)
 
-#define SHADER_PROGRAM_DEBUG_LOG_ON
+#define SHADER_PROGRAM_DEBUG_LOG_ON true
 
 #ifdef SHADER_PROGRAM_DEBUG_LOG_ON
 #define SHADER_PROGRAM_DEBUG_LOG(message) \
@@ -68,36 +69,75 @@ using namespace std;
 #endif
 
 
-static char infoLog[1024];
+char infoLog[1024];
 namespace LEapsGL {
     class ShaderManager;
     enum ShaderObjectSource {
         FROM_FILE, FROM_BINARY, FROM_ENTITY
     };
+    using ShaderProgramObject = FixedString<SHADER_ShaderProgramNameMaxLen>;
+
+    /**
+     * @struct ShaderObjectDescription
+     * @brief Describes an OpenGL shader object, including its type and source.
+     *
+     * The `ShaderObjectDescription` structure provides information about an OpenGL shader object,
+     * such as its type, source, and an identifier (usually a file path or entity name).
+     */
     struct ShaderObjectDescription {
+        /**
+         * @struct ShaderObjectDescriptionHash
+         * @brief Hash functor for `ShaderObjectDescription`.
+         *
+         * This functor calculates a hash value for a `ShaderObjectDescription` object.
+         */
         struct ShaderObjectDescriptionHash {
             size_t operator()(const ShaderObjectDescription& desc) const noexcept {
                 return desc.getHash();
             }
         };
 
-        ShaderObjectDescription(GLuint _type, const char* _name, ShaderObjectSource _sourceType = FROM_FILE) : type(_type), identifier(_name), sourceType(_sourceType) {
+        /**
+         * @brief Constructor for `ShaderObjectDescription`.
+         *
+         * Creates a `ShaderObjectDescription` with the specified type, identifier, and source type.
+         *
+         * @param _type The type of the shader (e.g., GL_VERTEX_SHADER, GL_FRAGMENT_SHADER).
+         * @param _name The identifier for the shader object (e.g., file path or entity name).
+         * @param _sourceType The source type of the shader object (default is FROM_FILE).
+         */
+        ShaderObjectDescription(GLuint _type, const string & _name, ShaderObjectSource _sourceType = FROM_FILE) : type(_type), identifier(_name.c_str()), sourceType(_sourceType){
         };
-        ShaderObjectDescription() = default;
-        GLuint type = 0;
-        PathString identifier;
-        ShaderObjectSource sourceType = FROM_FILE;
 
-        size_t getHash() const noexcept {
-            size_t h = 0;
-            LEapsGL::hash_combine(h, type, identifier.c_str(), sourceType);
+        /**
+         * @brief Default constructor for `ShaderObjectDescription` (deleted).
+         */
+        ShaderObjectDescription() = delete;
+
+        /**
+         * @brief Calculate the hash value for the `ShaderObjectDescription`.
+         * @return The hash value of the shader object description.
+         */
+        size_t getHash() const noexcept{
+            size_t h;
+            LEapsGL::hash_combine(h, type, string(identifier.c_str()), sourceType);
             return h;
         }
-        bool operator==(const ShaderObjectDescription& other) const {
+
+        /**
+         * @brief Check if two `ShaderObjectDescription` objects are equal.
+         * @param other The `ShaderObjectDescription` to compare with.
+         * @return `true` if the objects are equal, `false` otherwise.
+         */
+        bool operator==(const ShaderObjectDescription& other) const noexcept{
             return (type == other.type) &&
                 (sourceType == other.sourceType) &&
                 (identifier == other.identifier);
         }
+
+        GLuint type = 0;
+        PathString identifier;
+        ShaderObjectSource sourceType = FROM_FILE;
     };
 
     const char* GetShaderTypeName(GLenum type) {
@@ -129,372 +169,585 @@ namespace LEapsGL {
         return buffer.str();
     }
 
-
     /**
-    * @class ShaderObject
-    * @brief Represents an OpenGL shader object.
-    *
-    * This class encapsulates the functionality for an OpenGL shader object.
-    * It provides constructors, copy/move semantics, and methods for shader management.
-    */
-    class ShaderObject {
-    public:
-        /**
-         * @brief Default constructor.
-         *
-         * Creates an uninitialized shader object.
-         */
-        ShaderObject() : shaderID(0), type(0), source(""), compiled(false), keepMemory(false) {};
-
-        /**
-         * @brief Constructor for creating a shader of the specified type.
-         *
-         * @param shaderType The type of shader (e.g., GL_VERTEX_SHADER, GL_FRAGMENT_SHADER).
-         */
-        ShaderObject(GLenum shaderType)
-            : shaderID(0), type(shaderType), compiled(false), keepMemory(false) {
+     * @brief Default code generator for ShaderObjectDescription.
+     *
+     * This function generates the source code for a shader object based on its description.
+     *
+     * @param shaderObjectDescription The description of the shader object.
+     * @return The source code as a string.
+     *
+     * This function is used as the default code generator for shader objects. It checks the source type
+     * specified in the shader object description and generates the source code accordingly. If the source
+     * type is FROM_FILE, it reads the source code from a file. If the source type is FROM_BINARY, it throws
+     * an exception indicating that this source type is not implemented. If the source type is FROM_ENTITY,
+     * it throws an exception indicating that the Entity type must implement a to_string function and accept
+     * a code_generator as an argument.
+     */
+    string DefaultCodeGenerator(const ShaderObjectDescription& shaderObjectDescription) {
+        switch (shaderObjectDescription.sourceType)
+        {
+        case LEapsGL::FROM_FILE:
+            return ReadFile(shaderObjectDescription.identifier.c_str());
+            break;
+        case LEapsGL::FROM_BINARY:
+            throw std::runtime_error("[Todo] Unimplemented enum value: FROM_BINARY");
+            break;
+        case LEapsGL::FROM_ENTITY:
+            throw std::runtime_error("The Entity type must implement a to_string function and accept a code_generator as an argument");
+            break;
         }
-
-
-        /**
-         * @brief Constructor for creating a shader of the specified type.
-         *
-         * @param shaderType The type of shader (e.g., GL_VERTEX_SHADER, GL_FRAGMENT_SHADER).
-         */
-        ShaderObject(ShaderObjectDescription desc)
-            : shaderID(0), type(desc.type), compiled(false), keepMemory(false) {
-        }
-
-        /**
-         * @brief Copy constructor.
-         *
-         * Creates a new shader object by copying the source and type from another shader object.
-         *
-         * @param other The shader object to copy.
-         */
-        ShaderObject(const ShaderObject& other) = delete;
-        //    : type(other.type), source(other.source), keepMemory(false), compiled(false) {
-        //    this->shaderID = glCreateShader(type);
-        //}
-
-        /**
-         * @brief Move constructor.
-         *
-         * Creates a new shader object by moving the contents of another shader object.
-         *
-         * @param rhs The shader object to move.
-         */
-        ShaderObject(ShaderObject&& rhs) noexcept : ShaderObject() {
-            swap(*this, rhs);
-        }
-
-        /**
-         * @brief Copy assignment operator.
-         *
-         * Copies the source and type from another shader object.
-         *
-         * @param rhs The shader object to copy.
-         * @return A reference to the current shader object.
-         */
-        ShaderObject& operator=(ShaderObject rhs) = delete;
-        /*{
-            swap(*this, rhs);
-            return *this;
-        }*/
-
-        /**
-         * @brief Move assignment operator.
-         *
-         * Moves the contents of another shader object.
-         *
-         * @param rhs The shader object to move.
-         * @return A reference to the current shader object.
-         */
-        ShaderObject& operator=(ShaderObject&& rhs) noexcept {
-            swap(*this, rhs);
-            return *this;
-        }
-
-        /**
-         * @brief Destructor.
-         *
-         * Destroys the shader object and releases associated resources.
-         */
-        virtual ~ShaderObject() {
-            DeleteShader();
-        }
-
-        /**
-         * @brief Deletes the shader object.
-         *
-         * Releases resources associated with the shader object.
-         */
-        void DeleteShader() {
-            if (shaderID != 0) {
-                glDeleteShader(shaderID);
-            }
-            shaderID = 0;
-            compiled = false;
-        }
-
-
-        int AssignShaderID() {
-            DeleteShader();
-            this->shaderID = glCreateShader(type);
-            this->compiled = false;
-            return this->shaderID;
-        }
-
-        friend void swap(ShaderObject& lhs, ShaderObject& rhs) {
-            using std::swap;
-            swap(lhs.shaderID, rhs.shaderID);
-            swap(lhs.type, rhs.type);
-            swap(lhs.source, rhs.source);
-            swap(lhs.compiled, rhs.compiled);
-            swap(lhs.keepMemory, rhs.keepMemory);
-        }
-
-        void setSourceCode(string _source) { source = _source; };
-
-        bool IsCompiled() const {
-            return compiled;
-        }
-        GLuint GetID() const {
-            return shaderID;
-        }
-
-
-        void setKeepMemory(bool val) {
-            keepMemory = val;
-        }
-        bool getKeepMemory() const{
-            return keepMemory;
-        }
-        
-        bool Compile() {
-            DeleteShader();
-            shaderID = glCreateShader(type);
-
-            const char* sourcePtr = source.c_str();
-            glShaderSource(shaderID, 1, &sourcePtr, nullptr);
-            glCompileShader(shaderID);
-
-            GLint compileStatus;
-            glGetShaderiv(shaderID, GL_COMPILE_STATUS, &compileStatus);
-
-            if (compileStatus == GL_TRUE) {
-                compiled = true;
-                SHADER_PROGRAM_DEBUG_LOG(string("Compiled: ") << shaderID);
-            }
-            else {
-                GLint logLength;
-                glGetShaderiv(shaderID, GL_INFO_LOG_LENGTH, &logLength);
-                std::vector<char> logMessage(logLength);
-                glGetShaderInfoLog(shaderID, logLength, nullptr, logMessage.data());
-                std::cerr << "Compile fail!! COMPILATION_FAILED " << GetShaderTypeName(type) << " \n" << logMessage.data() << std::endl;
-                compiled = false;
-            }
-            return compiled;
-        }
-    private:
-        //        friend ShaderManager;
-        /**
-            * @brief Get the OpenGL ID of the shader object.
-            *
-            * @return The OpenGL ID of the shader object.
-            */
-        GLuint shaderID; ///< The unique identifier of the shader used in OpenGL.
-        GLenum type; ///< The type of the shader (e.g., GL_VERTEX_SHADER, GL_FRAGMENT_SHADER).
-        std::string source; ///< The string containing the source code of the shader.
-        bool compiled;   ///< A flag indicating whether the shader has been compiled (true if compiled, false otherwise).
-        bool keepMemory;  ///< A flag indicating whether memory should be retained (true if memory should be retained, false otherwise).
-    };
+    }
 
     /*
- This class, ShaderProgram, manages multiple Shader Objects and handles Shader Program activation.
- The Use method activates the Shader Program, and if it's not linked yet, it performs Linking before activation.
- The Linking status is tracked by the linked variable. The Link method is responsible for Linking the Shader Progra
+    * Don use __internal namespace
+    */
+    namespace __internal {
+        /**
+        * @class ShaderObject
+        * @brief Represents an OpenGL shader object.
+        *
+        * This class encapsulates the functionality for an OpenGL shader object.
+        * It provides constructors, copy/move semantics, and methods for shader management.
+        *
+        * ShaderObject instances are not meant to be exposed to external clients.
+        * Copying of ShaderObject instances is not allowed.
+        */
+        class ShaderObject {
+        public:
+            /**
+             * @brief Default constructor.
+             *
+             * Creates an uninitialized shader object.
+             */
+            ShaderObject() : shaderID(0), type(0), source(""), compiled(false), keepMemory(false) {};
 
- If any subscribed shader object undergoes changes, it updates 'linked' to false.
-
- Note that the shaderProgram operates independently from the ECS system.
- */
-
-    using ShaderProgramObject = FixedSizeHashString<SHADER_ShaderProgramNameMaxLen>;
-    class ShaderProgram {
-    public:
-        friend void swap(ShaderProgram& lhs, ShaderProgram& rhs) {
-            using std::swap;
-            swap(lhs.id, rhs.id);
-            swap(lhs.name, rhs.name);
-            swap(lhs.descriptors, rhs.descriptors);
-            swap(lhs.linked, rhs.linked);
-        }
-
-        void deleteProgram() {
-            if (id != 0) {
-                glDeleteProgram(id);
+            /**
+             * @brief Constructor for creating a shader of the specified type.
+             *
+             * @param shaderType The type of shader (e.g., GL_VERTEX_SHADER, GL_FRAGMENT_SHADER).
+             */
+            ShaderObject(GLenum shaderType)
+                : shaderID(0), type(shaderType), compiled(false), keepMemory(false) {
             }
-            linked = false;
-        }
-        int CreateShaderProgram() {
-            deleteProgram();
-            return id = glCreateProgram();
-        }
 
-        inline void attach(GLuint shaderID) {
-            glAttachShader(id, shaderID);
-        }
 
-        bool link() {
-            int state;
-            linked = true;
-            glLinkProgram(id);
-            glGetProgramiv(id, GL_LINK_STATUS, &state);
+            /**
+             * @brief Constructor for creating a shader of the specified type.
+             *
+             * @param shaderType The type of shader (e.g., GL_VERTEX_SHADER, GL_FRAGMENT_SHADER).
+             */
+            ShaderObject(ShaderObjectDescription desc)
+                : shaderID(0), type(desc.type), compiled(false), keepMemory(false) {
+            }
 
-            if (!state) {
-                glGetProgramInfoLog(id, sizeof(infoLog), NULL, infoLog);
-                std::cout << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
-                linked = false;
+            /**
+             * @brief Copy constructor.
+             *
+             * Creates a new shader object by copying the source and type from another shader object.
+             *
+             * @param other The shader object to copy.
+             */
+            ShaderObject(const ShaderObject& other) = delete;
+            /*    : shaderID(0), type(other.type), compiled(false), keepMemory(other.compiled) {
+            }*/
+
+            /**
+             * @brief Move constructor.
+             *
+             * Creates a new shader object by moving the contents of another shader object.
+             *
+             * @param rhs The shader object to move.
+             */
+            ShaderObject(ShaderObject&& rhs) noexcept : ShaderObject() {
+                swap(*this, rhs);
+            }
+
+            /**
+             * @brief Copy assignment operator.
+             *
+             * Copies the source and type from another shader object.
+             *
+             * @param rhs The shader object to copy.
+             * @return A reference to the current shader object.
+             */
+            ShaderObject& operator=(const ShaderObject& rhs) = delete;
+            /*{
+                swap(*this, rhs);
+                return *this;
+            }*/
+
+            /**
+             * @brief Move assignment operator.
+             *
+             * Moves the contents of another shader object.
+             *
+             * @param rhs The shader object to move.
+             * @return A reference to the current shader object.
+             */
+            ShaderObject& operator=(ShaderObject&& rhs) noexcept {
+                swap(*this, rhs);
+                return *this;
+            }
+
+            /**
+             * @brief Destructor.
+             *
+             * Destroys the shader object and releases associated resources.
+             */
+            virtual ~ShaderObject() {
+                DeleteShader();
+            }
+
+            /**
+             * @brief Deletes the shader object.
+             *
+             * Releases resources associated with the shader object.
+             */
+            void DeleteShader() noexcept {
+                if (shaderID != 0) {
+                    glDeleteShader(shaderID);
+                }
+                shaderID = 0;
+                compiled = false;
+            }
+
+            friend void swap(ShaderObject& lhs, ShaderObject& rhs) noexcept{
+                using std::swap;
+                swap(lhs.shaderID, rhs.shaderID);
+                swap(lhs.type, rhs.type);
+                swap(lhs.source, rhs.source);
+                swap(lhs.compiled, rhs.compiled);
+                swap(lhs.keepMemory, rhs.keepMemory);
+            }
+
+            void SetSourceCode(const string & _source) noexcept{ source = _source; };
+            bool IsCompiled() const {
+                return compiled;
+            }
+            GLuint GetID() const {
+                return shaderID;
+            }
+
+            void setKeepMemory(bool val) {
+                keepMemory = val;
+            }
+            bool getKeepMemory() const {
+                return keepMemory;
+            }
+
+            bool Compile() {
+                DeleteShader();
+                shaderID = glCreateShader(type);
+
+                const char* sourcePtr = source.c_str();
+                glShaderSource(shaderID, 1, &sourcePtr, nullptr);
+                glCompileShader(shaderID);
+
+                GLint compileStatus;
+                glGetShaderiv(shaderID, GL_COMPILE_STATUS, &compileStatus);
+
+                if (compileStatus == GL_TRUE) {
+                    compiled = true;
+                    SHADER_PROGRAM_DEBUG_LOG(string("Compiled shaderID:") << shaderID);
+                }
+                else {
+                    GLint logLength;
+                    glGetShaderiv(shaderID, GL_INFO_LOG_LENGTH, &logLength);
+                    std::vector<char> logMessage(logLength);
+                    glGetShaderInfoLog(shaderID, logLength, nullptr, logMessage.data());
+                    std::cerr << "Compile fail!! COMPILATION_FAILED " << GetShaderTypeName(type) << " \n" << logMessage.data() << std::endl;
+                    compiled = false;
+                }
+                return compiled;
+            }
+        private:
+            //        friend ShaderManager;
+            /**
+                * @brief Get the OpenGL ID of the shader object.
+                *
+                * @return The OpenGL ID of the shader object.
+                */
+            GLuint shaderID; ///< The unique identifier of the shader used in OpenGL.
+            GLenum type; ///< The type of the shader (e.g., GL_VERTEX_SHADER, GL_FRAGMENT_SHADER).
+            std::string source; ///< The string containing the source code of the shader.
+            bool compiled;   ///< A flag indicating whether the shader has been compiled (true if compiled, false otherwise).
+            bool keepMemory;  ///< A flag indicating whether memory should be retained (true if memory should be retained, false otherwise).
+        };
+
+        /*
+         This class, ShaderProgram, manages multiple Shader Objects and handles Shader Program activation.
+         The Use method activates the Shader Program, and if it's not linked yet, it performs Linking before activation.
+         The Linking status is tracked by the linked variable. The Link method is responsible for Linking the Shader Progra
+
+         If any subscribed shader object undergoes changes, it updates 'linked' to false.
+
+         Note that the shaderProgram operates independently from the ECS system.
+         */
+        class ShaderProgram {
+        public:
+            friend void swap(ShaderProgram& lhs, ShaderProgram& rhs) noexcept{
+                using std::swap;
+                swap(lhs.id, rhs.id);
+                swap(lhs.name, rhs.name);
+                swap(lhs.descriptors, rhs.descriptors);
+                swap(lhs.linked, rhs.linked);
+            }
+
+            /**
+             * @brief Attaches a shader to the program.
+             *
+             * @param shaderID The ID of the shader to attach.
+             */
+            inline void attach(GLuint shaderID) const{
+                glAttachShader(id, shaderID);
+            }
+
+            /**
+             * @brief Default constructor.
+             *
+             * Creates an uninitialized shader program.
+             */
+            ShaderProgram() : id(0), linked(false) {}
+            /**
+             * @brief Constructor with a ShaderProgramObject.
+             *
+             * @param c The ShaderProgramObject to use as the program's name.
+             */
+            ShaderProgram(ShaderProgramObject c) : id(0), linked(false), name(c) {}
+
+
+            // Copy Constructor
+            ShaderProgram(const ShaderProgram& other) = delete;
+
+            // Move constructor
+            ShaderProgram(ShaderProgram&& other) noexcept : ShaderProgram() {
+                swap(*this, other);
+            }
+            ShaderProgram& operator=(const ShaderProgram& other) = delete;
+
+            /**
+             * @brief Move assignment operator.
+             *
+             * Moves the contents of another shader program.
+             *
+             * @param other The shader program to move.
+             * @return A reference to the current shader program.
+             */
+            ShaderProgram& operator=(ShaderProgram&& other) noexcept {
+                swap(*this, other);
+                return *this;
+            }
+
+            /**
+             * @brief Destructor.
+             *
+             * Destroys the shader program and releases associated resources.
+             */
+            virtual ~ShaderProgram() {
+                assert(id == 0);
                 deleteProgram();
             }
 
-            return linked;
-        }
 
-        ShaderProgram() : id(0), linked(false) {
-        }
-        ShaderProgram(ShaderProgramObject c) : id(0), linked(false), name(c) {
-        }
-        // Copy Constructor
-        ShaderProgram(const ShaderProgram& other) = delete;
-        // Move constructor
-        ShaderProgram(ShaderProgram&& other) noexcept : ShaderProgram() {
-            swap(*this, other);
-        }
-        ShaderProgram& operator=(ShaderProgram other) = delete;
-        ShaderProgram& operator=(ShaderProgram&& other) noexcept {
-            swap(*this, other);
-            return *this;
-        }
+            // Client[ShaderManager] Side Method
 
-        virtual ~ShaderProgram() {
-            deleteProgram();
-        }
+            inline void use() {
+                glUseProgram(id);
+            }
+            /**
+             * @brief Deletes the shader program and releases associated resources.
+             */
+            void deleteProgram() {
+                if (id != 0) glDeleteProgram(id);
+                id = 0;
+                linked = false;
+            }
 
-        inline void use() {
-            glUseProgram(id);
-        }
+            /**
+             * @brief Initializes a shader program by creating a new program ID.
+             *
+             * @return The ID of the created shader program.
+             */
+            int InitShaderProgram() {
+                deleteProgram();
+                return id = glCreateProgram();
+            }
+            /**
+             * @brief Links the shader program.
+             *
+             * @return True if linking is successful, false otherwise.
+             */
+            bool link() {
+                int state;
+                assert(!linked);
 
-    private:
-        friend ShaderManager;
-        ShaderProgramObject name;
-        GLuint id = 0; // Program ID
-        vector<ShaderObjectDescription> descriptors;
-        bool linked;
-    };
+                linked = true;
+                glLinkProgram(id);
+                glGetProgramiv(id, GL_LINK_STATUS, &state);
 
+                if (!state) {
+                    glGetProgramInfoLog(id, sizeof(infoLog), NULL, infoLog);
+
+                    std::cout << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
+                    linked = false;
+                    deleteProgram();
+                    return false;
+                }
+
+                SHADER_PROGRAM_DEBUG_LOG(string("Linked program id:") << id);
+
+                return linked;
+            }
+
+
+            void resetLinked() { linked = false; };
+            bool isLinked() { return linked; };
+            GLuint getProgramID() {
+                return id;
+            }
+            vector<ShaderObjectDescription>& getDescriptor() {
+                return descriptors;
+            }
+
+            const ShaderProgramObject & getName() const {
+                return name;
+            }
+
+        private:
+            ShaderProgramObject name;
+            GLuint id = 0; // Program ID
+            vector<ShaderObjectDescription> descriptors;
+            bool linked;
+        };
+    }
+
+    /**
+     * @brief The ShaderManager class handles the management and interaction with Shader Program Objects.
+     *
+     * The ShaderManager class is responsible for managing Shader Program Objects (ShaderProgramObject).
+     * Clients interact with this class to create, delete, and assign descriptions to shader program objects.
+     * The ShaderManager maintains internal state based on these interactions. 
+     */
     class ShaderManager {
     public:
-        // Client side request function
+        /**
+         * @brief Default constructor for the ShaderManager.
+         */
         ShaderManager() = default;
 
+        /**
+         * @brief Destructor for the ShaderManager.
+         *
+         * Cleans up all shader program objects associated with the ShaderManager.
+         */
+        ~ShaderManager() {
+            while (!shaderProgramMap.empty()) {
+                auto it = shaderProgramMap.begin();
+                DeleteShaderProgram(it->second);
+            }
+        }
+
+        
+        /**
+         * @brief Get or create a ShaderProgramObject with the given name.
+         *
+         * If a ShaderProgramObject with the specified name exists, it is returned. Otherwise, a new one is created.
+         *
+         * @param name The name of the ShaderProgramObject to get or create.
+         * @return The ShaderProgramObject.
+         */
         ShaderProgramObject getOrCreateShaderProgram(const string& name) {
             ShaderProgramObject shaderProgramObject(name.c_str());
-            const auto iter = shaderProgramMap.find(shaderProgramObject.getHash());
-            if (iter == shaderProgramMap.end()) shaderProgramMap.emplace(shaderProgramObject.getHash(), ShaderProgram(shaderProgramObject));
+            const auto iter = shaderProgramMap.find(shaderProgramObject);
+            if (iter == shaderProgramMap.end()) shaderProgramMap.emplace(shaderProgramObject, __internal::ShaderProgram(shaderProgramObject));
             return shaderProgramObject;
         }
+
+        /**
+         * @brief Create a new ShaderProgramObject with the given name.
+         *
+         * If a ShaderProgramObject with the specified name already exists, an exception is thrown.
+         *
+         * @param name The name of the ShaderProgramObject to create.
+         * @return The newly created ShaderProgramObject.
+         */
         ShaderProgramObject CreateShaderProgram(const string& name) {
             ShaderProgramObject shaderProgramObject(name.c_str());
-            if (shaderProgramMap.find(shaderProgramObject.getHash()) != shaderProgramMap.end()) throw std::runtime_error(name + " is not found in shaderProgramMap");
-            shaderProgramMap.insert({ shaderProgramObject.getHash(), ShaderProgram(shaderProgramObject) });
+            if (shaderProgramMap.find(shaderProgramObject) != shaderProgramMap.end()) throw std::runtime_error(name + " is already exist.");
+            shaderProgramMap.insert({ shaderProgramObject, __internal::ShaderProgram(shaderProgramObject) });
             return shaderProgramObject;
         }
-        void UseShaderProgram(const ShaderProgramObject& name) {
-            auto& shaderProgram = shaderProgramMap[name.getHash()];
-            if (!shaderProgram.linked) {
-                shaderProgram.CreateShaderProgram();
-                for (const auto& desc : shaderProgram.descriptors) {
+
+        /**
+         * @brief Delete a ShaderProgramObject with the given name.
+         *
+         * Removes the ShaderProgramObject associated with the provided name, if it exists.
+         *
+         * @param name The name of the ShaderProgramObject to delete.
+         */
+        void DeleteShaderProgram(const string& name) {
+            ShaderProgramObject shaderProgramObject(name.c_str());
+            auto iter = shaderProgramMap.find(shaderProgramObject);
+            if (iter == shaderProgramMap.end()) return;
+            DeleteShaderProgram(iter->second);
+        }
+        /**
+         * @brief Use a ShaderProgramObject with the specified name.
+         *
+         * Activates and uses the ShaderProgramObject associated with the provided name. If the program is not linked, it will be linked and attached to its shader objects.
+         *
+         * @param name The name of the ShaderProgramObject to use.
+         */
+        void UseShaderProgram(const ShaderProgramObject& name) noexcept{
+            auto& shaderProgram = shaderProgramMap[name];
+            if (!shaderProgram.isLinked()) {
+                shaderProgram.InitShaderProgram();
+                for (const auto& desc : shaderProgram.getDescriptor()) {
                     shaderProgram.attach(getShaderObjectID(desc));
                 }
                 shaderProgram.link();
             }
 
-            usedID = shaderProgram.linked ? shaderProgram.id : 0;
+            usedID = shaderProgram.isLinked() ? shaderProgram.getProgramID() : 0;
             shaderProgram.use();
         }
 
-        void memoryClear() {
+
+        /**
+         * @brief Clear the memory of shader objects that are marked to keep memory.
+         *
+         * Iterates through shader objects and deletes the ones that are marked to keep memory.
+         */
+        void memoryClear() noexcept{
             for (auto& x : shaderObjects) if (!x.getKeepMemory()) x.DeleteShader();
         }
-        void activateKeepMemory(ShaderObjectDescription desc) {
+
+        /**
+         * @brief Mark a ShaderObjectDescription to keep its memory.
+         *
+         * Marks the specified ShaderObjectDescription to keep its memory, preventing it from being deleted in memoryClear.
+         *
+         * @param desc The ShaderObjectDescription to mark.
+         */
+        void activateKeepMemory(const ShaderObjectDescription & desc) {
             auto& handler = getOrCreateHandler(desc);
             shaderObjects[handler.index].setKeepMemory(true);
         }
-        template <typename Container = vector<ShaderObjectDescription>>
-        void activateKeepMemory(Container descList) {
-            for (auto& x : descList) activateKeepMemory(x);
+        /**
+         * @brief Mark a ShaderProgramObject's descriptors to keep their memory.
+         *
+         * Marks all descriptors of the specified ShaderProgramObject to keep their memory, preventing them from being deleted in memoryClear.
+         *
+         * @param spo The ShaderProgramObject to mark.
+         */
+        void activateKeepMemory(const ShaderProgramObject & spo) {
+            activateKeepMemory(shaderProgramMap[spo].getDescriptor());
         }
 
-        void deactiveateKeepMemory(ShaderObjectDescription desc) {
+        /**
+         * @brief Mark a list of ShaderObjectDescriptions to keep their memory.
+         *
+         * Marks all ShaderObjectDescriptions in the provided container to keep their memory, preventing them from being deleted in memoryClear.
+         *
+         * @param descList The container of ShaderObjectDescriptions to mark.
+         * @tparam Container The type of the container, defaults to vector<ShaderObjectDescription>.
+         */
+        template <typename Container = vector<ShaderObjectDescription>>
+        void activateKeepMemory(const Container & descList) {
+            for (const auto& x : descList) activateKeepMemory(x);
+        }
+        
+        /**
+         * @brief Unmark a ShaderObjectDescription to release its memory.
+         *
+         * Unmarks the specified ShaderObjectDescription to release its memory, allowing it to be deleted in memoryClear.
+         *
+         * @param desc The ShaderObjectDescription to unmark.
+         */
+        void deactivateKeepMemory(const ShaderObjectDescription & desc) {
             auto& handler = getOrCreateHandler(desc);
             shaderObjects[handler.index].setKeepMemory(false);
             checkAndRemoveShaderObject(desc);
         }
+        /**
+         * @brief Unmark a ShaderProgramObject's descriptors to release their memory.
+         *
+         * Unmarks all descriptors of the specified ShaderProgramObject to release their memory, allowing them to be deleted in memoryClear.
+         *
+         * @param spo The ShaderProgramObject to unmark.
+         */
+        void deactivateKeepMemory(const ShaderProgramObject & spo) {
+            deactivateKeepMemory(shaderProgramMap[spo].getDescriptor());
+        }
+
+        /**
+         * @brief Unmark a list of ShaderObjectDescriptions to release their memory.
+         *
+         * Unmarks all ShaderObjectDescriptions in the provided container to release their memory, allowing them to be deleted in memoryClear.
+         *
+         * @param descList The container of ShaderObjectDescriptions to unmark.
+         * @tparam Container The type of the container, defaults to vector<ShaderObjectDescription>.
+         */
         template <typename Container = vector<ShaderObjectDescription>>
-        void deactiveateKeepMemory(Container descList) {
-            for (auto& x : descList) deactiveateKeepMemory(x);
+        void deactivateKeepMemory(Container descList) {
+            for (auto& x : descList) deactivateKeepMemory(x);
         }
 
 
-//
-//                /**
-//                 * @brief Assign a shader object description to a shader program using different parameter types.
-//                 * @param shaderProgram The shader program or name to which the shader object will be assigned.
-//                 * @param desc The description of the shader object to assign.
-//                 * @param name The name or descriptor of the shader program.
-//                 *
-//                 * The `Assign` function assigns a shader object to a shader program. You can use different
-//                 * parameter types such as a `ShaderProgram`, a program name as a string, or a program
-//                 * descriptor to specify the shader program.
-//                 *
-//                 * Note: This function is not frequently called.
-//                 *
-//                 * @code
-//                 * ShaderProgram program("ExampleProgram");
-//                 * ShaderObjectDescription description("example_shader.glsl");
-//                 * Assign(program, description);
-//                 * Assign("ExampleProgram", description);
-//                 * Assign(ShaderProgramName::Example, description);
-//                 * @endcode
-//                 */
-        void AssignDescription(ShaderProgram& shaderProgram, const ShaderObjectDescription desc) 
+
+        /**
+        * @brief Assign a shader object description to a shader program using different parameter types.
+        * @param shaderProgram The shader program or name to which the shader object will be assigned.
+        * @param desc The description of the shader object to assign.
+        * @param name The name or descriptor of the shader program.
+        *
+        * The `Assign` function assigns a shader object to a shader program. You can use different
+        * parameter types such as a `ShaderProgram`, a program name as a string, or a program
+        * descriptor to specify the shader program.
+        *
+        * Note: This function is not frequently called.
+        *
+        * @code
+        * ShaderProgramObject program = ShaderManager.CreateShaderProgram("ExampleProgram");
+        * ShaderObjectDescription description("example_shader.glsl");
+        * AssignDescription(program, description);
+        * AssignDescription("ExampleProgram", description);
+        * AssignDescription(ShaderProgramName::Example, description);
+        * @endcode
+        */
+        void AssignDescription(__internal::ShaderProgram& shaderProgram, const ShaderObjectDescription desc)
         {
-            auto& shaderProgramDescriptors = shaderProgram.descriptors;
+            auto& shaderProgramDescriptors = shaderProgram.getDescriptor();
             if (std::find(shaderProgramDescriptors.begin(), shaderProgramDescriptors.end(), desc)
                 != shaderProgramDescriptors.end()) return;
 
             shaderProgramDescriptors.push_back(desc);
             auto& handler = getOrCreateHandler(desc);
-            handler.usedProgram.push_back(shaderProgram.name);
+            handler.usedProgram.push_back(shaderProgram.getName());
         }
         void AssignDescription(const ShaderProgramObject& name, const ShaderObjectDescription desc) {
-            auto iter = shaderProgramMap.find(name.getHash());
+            auto iter = shaderProgramMap.find(name);
             if (iter == shaderProgramMap.end()) throw runtime_error("There is no shader program: " + string(name.c_str()));
             AssignDescription(iter->second, desc);
         }
-
-        //template <typename ShaderObjectDescriptionContainer = vector<ShaderObjectDescription>>
-        //void AssignDescription(const ShaderProgram& shaderProgram, const ShaderObjectDescriptionContainer& items) {
-        //    for (auto iter = items.begin(); iter != items.end(); ++iter) AssignDescription(shaderProgram, *iter);
-        //}
         template <typename ShaderObjectDescriptionContainer = vector<ShaderObjectDescription>>
         void AssignDescription(const ShaderProgramObject& desc, const ShaderObjectDescriptionContainer& items) {
-            auto& shaderProgram = shaderProgramMap[desc.getHash()];
+            auto& shaderProgram = shaderProgramMap[desc];
             for(const auto& item : items) AssignDescription(shaderProgram, item);
         }
 
+        /**
+         * @brief Set a uniform value for the specified shader program.
+         *
+         * Sets a uniform value for the specified shader program using its ID, the uniform location, and the uniform name.
+         *
+         * @param id The ID of the shader program.
+         * @param location The uniform location.
+         * @param name The name of the uniform.
+         * @param value The value to set for the uniform.
+         * @tparam T The data type of the uniform value.
+         */
         template <class T>
         void SetUniform(const int id, const GLint location, const string& name, const T& value) {
             if constexpr (std::is_same<T, int>::value) {
@@ -524,46 +777,175 @@ namespace LEapsGL {
             }
         }
 
+        /**
+         * @brief Set a uniform value for a shader program identified by a ShaderProgramObject.
+         *
+         * Sets a uniform value for a shader program identified by a ShaderProgramObject using the uniform name and value.
+         *
+         * @param shaderProgramIdentifier The ShaderProgramObject that identifies the shader program.
+         * @param name The name of the uniform.
+         * @param value The value to set for the uniform.
+         * @tparam T The data type of the uniform value.
+         */
         template <class T>
         void SetUniform(const ShaderProgramObject& shaderProgramIdentifier, string& name, const T& value) {
-            const ShaderProgram& program = shaderProgramMap[shaderProgramIdentifier.getHash()];
+            const __internal::ShaderProgram& program = shaderProgramMap[shaderProgramIdentifier];
             auto id = program.id;
             GLint location = glGetUniformLocation(id, name.c_str());
             SetUniform(id, location, name, value);
         }
 
+        /**
+         * @brief Set a uniform value for the currently used shader program.
+         *
+         * Sets a uniform value for the currently used shader program using the uniform name and value.
+         *
+         * @param name The name of the uniform.
+         * @param value The value to set for the uniform.
+         * @tparam T The data type of the uniform value.
+         */
         template <class T>
         void SetUniform(const string& name, const T& value) {
             auto id = usedID;
             GLint location = glGetUniformLocation(id, name.c_str());
+            if constexpr (SHADER_PROGRAM_DEBUG_LOG_ON) if(location == -1) SHADER_PROGRAM_DEBUG_LOG("[WANING] location = -1 detected: " << name << "\n");
             SetUniform(id, location, name, value);
         }
 
-        
-        void DestroyShaderObject(ShaderObjectDescription desc) {
+        /**
+         * @brief Assign source code to shader objects associated with a ShaderProgramObject.
+         *
+         * Assigns source code to all shader objects associated with the provided ShaderProgramObject, using the specified code generator function.
+         *
+         * @param spo The ShaderProgramObject to which source code will be assigned.
+         * @param code_generator The code generator function that generates the source code for the shader objects.
+         */
+        void AssignShaderObjectSourceCode(const ShaderProgramObject& spo,
+            function<string(const ShaderObjectDescription&)> code_generator = DefaultCodeGenerator) {
+            auto& iter = shaderProgramMap[spo];
+            AssignShaderObjectSourceCode(iter.getDescriptor());
+        }
+        /**
+         * @brief Assign source code to shader objects with the specified ShaderObjectDescription.
+         *
+         * Assigns source code to all shader objects with the specified ShaderObjectDescription, using the specified code generator function.
+         *
+         * @param desc The ShaderObjectDescription for which source code will be assigned.
+         * @param code_generator The code generator function that generates the source code for the shader objects.
+         */
+        void AssignShaderObjectSourceCode(const ShaderObjectDescription& desc, 
+            function<string(const ShaderObjectDescription&)> code_generator = DefaultCodeGenerator) {
+
+            auto iter = shaderDescriptionMap.find(desc);
+            if (iter == shaderDescriptionMap.end()) return;
+            auto& handler = iter->second;
+
+            shaderObjects[handler.index] = std::move(GenerateShaderObject(desc, code_generator));
+        }
+
+        /**
+         * @brief Assign source code to multiple shader objects.
+         *
+         * Assigns source code to multiple shader objects with the provided ShaderObjectDescriptions, using the specified code generator function.
+         *
+         * @param descList The list of ShaderObjectDescriptions for which source code will be assigned.
+         * @param code_generator The code generator function that generates the source code for the shader objects.
+         * @tparam Container The type of the container, defaults to vector<ShaderObjectDescription>.
+         */
+        template <typename Container = vector<ShaderObjectDescription>>
+        void AssignShaderObjectSourceCode(const Container& descList, function<string(const ShaderObjectDescription&)> code_generator = DefaultCodeGenerator) {
+            for (const auto& x : descList) AssignShaderObjectSourceCode(x, code_generator);
+        };
+
+        /**
+         * @brief Destroy shader objects associated with a ShaderProgramObject.
+         *
+         * Destroys shader objects associated with the provided ShaderProgramObject, removing them from memory.
+         *
+         * @param spo The ShaderProgramObject for which shader objects will be destroyed.
+         */
+        void DestroyShaderObject(const ShaderProgramObject& spo) {
+            auto & iter = shaderProgramMap[spo];
+            DestroyShaderObject(iter.getDescriptor());
+        };
+        /**
+         * @brief Destroy shader objects with the specified ShaderObjectDescription.
+         *
+         * Destroys shader objects associated with the specified ShaderObjectDescription, removing them from memory.
+         *
+         * @param desc The ShaderObjectDescription for which shader objects will be destroyed.
+         */
+        void DestroyShaderObject(const ShaderObjectDescription& desc) {
             auto iter = shaderDescriptionMap.find(desc);
             if (iter == shaderDescriptionMap.end()) return;
             auto& handler = iter->second;
             shaderObjects[handler.index].DeleteShader();
         };
-        void RelinkToShaderProgram(ShaderObjectDescription desc) {
+        /**
+         * @brief Destroy multiple shader objects.
+         *
+         * Destroys multiple shader objects associated with the provided ShaderObjectDescriptions, removing them from memory.
+         *
+         * @param descList The list of ShaderObjectDescriptions for which shader objects will be destroyed.
+         * @tparam Container The type of the container, defaults to vector<ShaderObjectDescription>.
+         */
+        template <typename Container = vector<ShaderObjectDescription>>
+        void DestroyShaderObject(const Container& descList) {
+            for (const auto& x : descList) DestroyShaderObject(x);
+        };
+        /**
+         * @brief Relink shader programs associated with a ShaderObjectDescription.
+         *
+         * Relinks shader programs associated with the provided ShaderObjectDescription. Used when changes are made to shader objects.
+         *
+         * @param desc The ShaderObjectDescription for which shader programs will be relinked.
+         */
+        void RelinkToShaderProgram(const ShaderObjectDescription& desc) {
             auto iter = shaderDescriptionMap.find(desc);
             if (iter == shaderDescriptionMap.end()) return;
             auto& handler = iter->second;
-            for (const auto & prog_name : handler.usedProgram) shaderProgramMap[prog_name.getHash()].linked = false;
+            for (const auto & prog_name : handler.usedProgram) shaderProgramMap[prog_name].resetLinked();
+        }
+
+        /**
+         * @brief Relink a shader program associated with a ShaderProgramObject.
+         *
+         * Relinks a shader program associated with the provided ShaderProgramObject. Used when changes are made to shader objects.
+         *
+         * @param spo The ShaderProgramObject for which the shader program will be relinked.
+         */
+        void RelinkToShaderProgram(const ShaderProgramObject& spo) {
+            auto& program = shaderProgramMap[spo];
+            program.resetLinked();
+        }
+
+        const vector<ShaderObjectDescription>& getAllDescirption(string name) {
+            return shaderProgramMap[ShaderProgramObject(name.c_str())].getDescriptor();
+        }
+        const vector<ShaderObjectDescription>& getAllDescirption(ShaderProgramObject spo) {
+            return shaderProgramMap[spo].getDescriptor();
         }
 
     private:
-
+        void DeleteShaderProgram(__internal::ShaderProgram& shaderProgram) {
+            for (const auto& x : shaderProgram.getDescriptor()) {
+                auto& handler = getOrCreateHandler(x);
+                auto it = std::find(handler.usedProgram.begin(), handler.usedProgram.end(), shaderProgram.getName());
+                if (it != handler.usedProgram.end()) {
+                    handler.usedProgram.erase(it);
+                    checkAndRemoveShaderObject(handler);
+                }
+            }
+            shaderProgram.deleteProgram();
+            shaderProgramMap.erase(shaderProgram.getName());
+        }
         struct Handler {
             int index;
             vector<ShaderProgramObject> usedProgram;
         };
 
-        void checkAndRemoveShaderObject(const ShaderObjectDescription & desc) {
-            auto iter = shaderDescriptionMap.find(desc);
-            if (iter == shaderDescriptionMap.end()) return;
-            auto& handler = iter->second;
+        void checkAndRemoveShaderObject(Handler& handler) {
+            ShaderObjectDescription desc = shaderDescriptions[handler.index];
             if (!shaderObjects[handler.index].getKeepMemory() && handler.usedProgram.size() == 0) {
                 auto x = shaderDescriptions.back();
                 shaderDescriptionMap[x].index = handler.index;
@@ -574,29 +956,25 @@ namespace LEapsGL {
                 shaderDescriptionMap.erase(desc);
             }
         }
+        void checkAndRemoveShaderObject(const ShaderObjectDescription & desc) {
+            auto iter = shaderDescriptionMap.find(desc);
+            if (iter == shaderDescriptionMap.end()) return;
+            auto& handler = iter->second;
+            checkAndRemoveShaderObject(handler);
+        }
 
-        ShaderObject GenerateShaderObject(const ShaderObjectDescription& shaderObjectDescription) {
-            ShaderObject shaderObject(shaderObjectDescription);
-            shaderObject.AssignShaderID();
-            // todo
-            switch (shaderObjectDescription.sourceType)
-            {
-            case LEapsGL::FROM_FILE:
-                shaderObject.setSourceCode(ReadFile(shaderObjectDescription.identifier.c_str()));
-                break;
-            case LEapsGL::FROM_BINARY:
-                throw std::runtime_error("Unimplemented enum value: FROM_BINARY");
-                break;
-            case LEapsGL::FROM_ENTITY:
-                // entity => engine..
-                throw std::runtime_error("Unimplemented enum value: FROM_ENTITY");
-                break;
-            }
+
+        __internal::ShaderObject GenerateShaderObject(const ShaderObjectDescription& shaderObjectDescription,
+                                          function<string(const ShaderObjectDescription&)> code_generator = DefaultCodeGenerator ) {
+            __internal::ShaderObject shaderObject(shaderObjectDescription);
+            shaderObject.SetSourceCode(code_generator(shaderObjectDescription));
             return shaderObject;
         }
+
         Handler& getOrCreateHandler(const ShaderObjectDescription desc){
             auto iter = shaderDescriptionMap.find(desc);
             if (iter == shaderDescriptionMap.end()) {
+                SHADER_PROGRAM_DEBUG_LOG("[Info] Added Shader Object: " << desc.getHash() << " " << desc.identifier.c_str() << " " << desc.type << " " << desc.sourceType);
                 iter = shaderDescriptionMap.emplace(desc, Handler()).first;
                 shaderDescriptions.push_back(desc);
                 shaderObjects.push_back(GenerateShaderObject(desc));
@@ -606,22 +984,24 @@ namespace LEapsGL {
         }
         GLuint getShaderObjectID(const ShaderObjectDescription& desc) {
             auto& handler = getOrCreateHandler(desc);
-            ShaderObject& shaderObject = shaderObjects[handler.index];
+            __internal::ShaderObject& shaderObject = shaderObjects[handler.index];
             int returnID = shaderObject.GetID();
             if (!shaderObject.IsCompiled()) shaderObject.Compile() ? returnID = shaderObject.GetID() : returnID = 0;
             return returnID;
         }
+
 
     private:
         // Current State
         GLuint usedID = 0;
 
         // ShaderManager Component Access Functions
-        unordered_map<size_t, ShaderProgram> shaderProgramMap;  ///> Shader program mapper
+        unordered_map<ShaderProgramObject, __internal::ShaderProgram, ShaderProgramObject::FixedStringHashFn> shaderProgramMap;  ///> Shader program mapper
 
         // unordred <shaderObjectDescription, option>
         unordered_map<ShaderObjectDescription, Handler, ShaderObjectDescription::ShaderObjectDescriptionHash> shaderDescriptionMap;  ///> Sparse map (Shader description to shader map)
         vector<ShaderObjectDescription> shaderDescriptions;                    ///> Packed description vector
-        vector<ShaderObject> shaderObjects;                                    ///> Packed shader object vector
+        vector<__internal::ShaderObject> shaderObjects;                                    ///> Packed shader object vector
+
     };
 }
