@@ -7,7 +7,7 @@ namespace LEapsGL {
 	union Color {
 		struct { float r, g, b, a; };
 		float values[4];
-
+        
 		static const Color black;
 		static const Color blue;
 		static const Color clear;

@@ -54,7 +54,7 @@
 #include <optional>
 #include <Timer.h>
 #include <functional>
-
+#include "entity.h"
 using namespace std;
 
 #define PRINT_NAME(name) (#name)
@@ -75,7 +75,30 @@ namespace LEapsGL {
     enum ShaderObjectSource {
         FROM_FILE, FROM_BINARY, FROM_ENTITY
     };
-    using ShaderProgramObject = FixedString<SHADER_ShaderProgramNameMaxLen>;
+
+    using ShaderProgramIdentifier = FixedString<SHADER_ShaderProgramNameMaxLen>;
+
+    //enum class ShaderProgramEntity : std::uint64_t {};
+    using ShaderProgramEntity = std::uint64_t;
+    constexpr size_t ShaderProgramInvalid = 0;
+
+    struct ShaderProgramEntityHandler {
+        using tempo_type = temporary<ShaderProgramEntity, ShaderManager>;
+
+        using entity_type = entity_traits<ShaderProgramEntity>::entity_type;
+        using version_type = entity_traits<ShaderProgramEntity>::version_type;
+        ShaderProgramEntityHandler(ShaderProgramIdentifier _name) :name(_name) {
+            temporarl_entity = tempo_type{ (ShaderProgramEntity)null_entity {} };
+        };
+        ShaderProgramEntityHandler() {
+            temporarl_entity = tempo_type{ (ShaderProgramEntity)null_entity {} };
+        }
+
+        ShaderProgramIdentifier name;
+    private:
+        friend ShaderManager;
+        tempo_type temporarl_entity;
+    };
 
     /**
      * @struct ShaderObjectDescription
@@ -388,7 +411,7 @@ namespace LEapsGL {
         public:
             friend void swap(ShaderProgram& lhs, ShaderProgram& rhs) noexcept{
                 using std::swap;
-                swap(lhs.id, rhs.id);
+                swap(lhs.programID, rhs.programID);
                 swap(lhs.name, rhs.name);
                 swap(lhs.descriptors, rhs.descriptors);
                 swap(lhs.linked, rhs.linked);
@@ -400,7 +423,7 @@ namespace LEapsGL {
              * @param shaderID The ID of the shader to attach.
              */
             inline void attach(GLuint shaderID) const{
-                glAttachShader(id, shaderID);
+                glAttachShader(programID, shaderID);
             }
 
             /**
@@ -408,13 +431,13 @@ namespace LEapsGL {
              *
              * Creates an uninitialized shader program.
              */
-            ShaderProgram() : id(0), linked(false) {}
+            ShaderProgram() : programID(0), linked(false) {}
             /**
              * @brief Constructor with a ShaderProgramObject.
              *
              * @param c The ShaderProgramObject to use as the program's name.
              */
-            ShaderProgram(ShaderProgramObject c) : id(0), linked(false), name(c) {}
+            ShaderProgram(ShaderProgramIdentifier identifier) : programID(0), linked(false), name(identifier) {}
 
 
             // Copy Constructor
@@ -445,7 +468,7 @@ namespace LEapsGL {
              * Destroys the shader program and releases associated resources.
              */
             virtual ~ShaderProgram() {
-                assert(id == 0);
+                assert(programID == 0);
                 deleteProgram();
             }
 
@@ -453,14 +476,14 @@ namespace LEapsGL {
             // Client[ShaderManager] Side Method
 
             inline void use() {
-                glUseProgram(id);
+                glUseProgram(programID);
             }
             /**
              * @brief Deletes the shader program and releases associated resources.
              */
             void deleteProgram() {
-                if (id != 0) glDeleteProgram(id);
-                id = 0;
+                if (programID != 0) glDeleteProgram(programID);
+                programID = 0;
                 linked = false;
             }
 
@@ -471,7 +494,7 @@ namespace LEapsGL {
              */
             int InitShaderProgram() {
                 deleteProgram();
-                return id = glCreateProgram();
+                return programID = glCreateProgram();
             }
             /**
              * @brief Links the shader program.
@@ -483,11 +506,11 @@ namespace LEapsGL {
                 assert(!linked);
 
                 linked = true;
-                glLinkProgram(id);
-                glGetProgramiv(id, GL_LINK_STATUS, &state);
+                glLinkProgram(programID);
+                glGetProgramiv(programID, GL_LINK_STATUS, &state);
 
                 if (!state) {
-                    glGetProgramInfoLog(id, sizeof(infoLog), NULL, infoLog);
+                    glGetProgramInfoLog(programID, sizeof(infoLog), NULL, infoLog);
 
                     std::cout << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
                     linked = false;
@@ -495,7 +518,7 @@ namespace LEapsGL {
                     return false;
                 }
 
-                SHADER_PROGRAM_DEBUG_LOG(string("Linked program id:") << id);
+                SHADER_PROGRAM_DEBUG_LOG(string("Linked program id:") << programID);
 
                 return linked;
             }
@@ -504,19 +527,19 @@ namespace LEapsGL {
             void resetLinked() { linked = false; };
             bool isLinked() { return linked; };
             GLuint getProgramID() {
-                return id;
+                return programID;
             }
             vector<ShaderObjectDescription>& getDescriptor() {
                 return descriptors;
             }
 
-            const ShaderProgramObject & getName() const {
+            const ShaderProgramIdentifier& getName() const {
                 return name;
             }
 
         private:
-            ShaderProgramObject name;
-            GLuint id = 0; // Program ID
+            ShaderProgramIdentifier name;
+            GLuint programID;
             vector<ShaderObjectDescription> descriptors;
             bool linked;
         };
@@ -531,6 +554,10 @@ namespace LEapsGL {
      */
     class ShaderManager {
     public:
+        using traits_type = entity_traits<ShaderProgramEntity>;
+        using entity_type = entity_traits<ShaderProgramEntity>::entity_type;
+        using version_type = entity_traits<ShaderProgramEntity>::version_type;
+
         /**
          * @brief Default constructor for the ShaderManager.
          */
@@ -557,11 +584,11 @@ namespace LEapsGL {
          * @param name The name of the ShaderProgramObject to get or create.
          * @return The ShaderProgramObject.
          */
-        ShaderProgramObject getOrCreateShaderProgram(const string& name) {
-            ShaderProgramObject shaderProgramObject(name.c_str());
-            const auto iter = shaderProgramMap.find(shaderProgramObject);
-            if (iter == shaderProgramMap.end()) shaderProgramMap.emplace(shaderProgramObject, __internal::ShaderProgram(shaderProgramObject));
-            return shaderProgramObject;
+        ShaderProgramEntityHandler getOrCreateShaderProgram(const string& name) {
+            ShaderProgramEntityHandler shaderProgramEntityHandler(name.c_str());
+            auto iter = shaderProgramMap.find(shaderProgramEntityHandler.name);
+            if (iter != shaderProgramMap.end()) return packedEntity[iter->second];
+            return CreateShaderProgram(name);
         }
 
         /**
@@ -572,11 +599,24 @@ namespace LEapsGL {
          * @param name The name of the ShaderProgramObject to create.
          * @return The newly created ShaderProgramObject.
          */
-        ShaderProgramObject CreateShaderProgram(const string& name) {
-            ShaderProgramObject shaderProgramObject(name.c_str());
-            if (shaderProgramMap.find(shaderProgramObject) != shaderProgramMap.end()) throw std::runtime_error(name + " is already exist.");
-            shaderProgramMap.insert({ shaderProgramObject, __internal::ShaderProgram(shaderProgramObject) });
-            return shaderProgramObject;
+        ShaderProgramEntityHandler CreateShaderProgram(const string& name) {
+            ShaderProgramEntityHandler shaderProgramEntityHandler(name.c_str());
+            auto iter = shaderProgramMap.find(shaderProgramEntityHandler.name);
+            if (iter != shaderProgramMap.end()) throw std::runtime_error("Already exist shader program: " + name);
+            __internal::ShaderProgram program(shaderProgramEntityHandler.name);
+            program.InitShaderProgram();
+            const size_t newIndex = program.getProgramID();
+
+            iter = shaderProgramMap.emplace(shaderProgramEntityHandler.name, program.getProgramID()).first;
+            shaderProgramEntityHandler.temporarl_entity.data = traits_type::construct(
+                newIndex, traits_type::to_version(packedEntity[newIndex].temporarl_entity.data)
+            );
+            packedEntity[newIndex] = shaderProgramEntityHandler;
+            packedShaderProgram[newIndex] = std::move(program);
+
+            SHADER_PROGRAM_DEBUG_LOG("[Info] Created Shader Program: " << string(shaderProgramEntityHandler.name.c_str()) << " Entity: " << traits_type::to_entity(shaderProgramEntityHandler.temporarl_entity.data) << " Version: " << traits_type::to_version(shaderProgramEntityHandler.temporarl_entity.data));
+
+            return shaderProgramEntityHandler;
         }
 
         /**
@@ -587,8 +627,8 @@ namespace LEapsGL {
          * @param name The name of the ShaderProgramObject to delete.
          */
         void DeleteShaderProgram(const string& name) {
-            ShaderProgramObject shaderProgramObject(name.c_str());
-            auto iter = shaderProgramMap.find(shaderProgramObject);
+            ShaderProgramEntityHandler shaderProgramEntityHandler(name.c_str());
+            auto iter = shaderProgramMap.find(shaderProgramEntityHandler.name);
             if (iter == shaderProgramMap.end()) return;
             DeleteShaderProgram(iter->second);
         }
@@ -599,18 +639,41 @@ namespace LEapsGL {
          *
          * @param name The name of the ShaderProgramObject to use.
          */
-        void UseShaderProgram(const ShaderProgramObject& name) noexcept{
-            auto& shaderProgram = shaderProgramMap[name];
-            if (!shaderProgram.isLinked()) {
-                shaderProgram.InitShaderProgram();
-                for (const auto& desc : shaderProgram.getDescriptor()) {
-                    shaderProgram.attach(getShaderObjectID(desc));
+        void UseShaderProgram(ShaderProgramEntityHandler& shaderProgramEntityHandler) noexcept{
+            size_t shaderProgramIndex = getShaderProgramIndex(shaderProgramEntityHandler);
+            if (shaderProgramIndex == ShaderProgramInvalid) throw std::runtime_error("shader program not founded. Name: " + string(shaderProgramEntityHandler.name.c_str()));
+
+            if (!packedShaderProgram[shaderProgramIndex].isLinked()) {
+                packedShaderProgram[shaderProgramIndex].InitShaderProgram();
+
+                auto oldIter = shaderProgramMap.find(shaderProgramEntityHandler.name);
+                if (oldIter != shaderProgramMap.end()) {
+                    const size_t oldIndex = oldIter->second;
+                    if (oldIndex != 0) {
+                        packedEntity[oldIndex].temporarl_entity.data = traits_type::reset(packedEntity[oldIndex].temporarl_entity.data);
+                    }
                 }
-                shaderProgram.link();
+                __internal::ShaderProgram tmpInstance = std::move(packedShaderProgram[shaderProgramIndex]);
+
+                const size_t newIndex = tmpInstance.getProgramID();
+                shaderProgramEntityHandler.temporarl_entity.data = traits_type::set_entity(packedEntity[newIndex].temporarl_entity.data, newIndex);
+                
+                oldIter->second = newIndex;
+
+                packedEntity[newIndex] = shaderProgramEntityHandler;
+                packedShaderProgram[newIndex] = std::move(tmpInstance);
+                shaderProgramIndex = newIndex;
+
+                for (const auto& desc : packedShaderProgram[shaderProgramIndex].getDescriptor()) {
+                    packedShaderProgram[shaderProgramIndex].attach(getShaderObjectID(desc));
+                }
+                packedShaderProgram[shaderProgramIndex].link();
+
+                SHADER_PROGRAM_DEBUG_LOG("[Info] Modified Shader Program: " << string(shaderProgramEntityHandler.name.c_str()) << " Entity: " << traits_type::to_entity(shaderProgramEntityHandler.temporarl_entity.data) << " Version: " << traits_type::to_version(shaderProgramEntityHandler.temporarl_entity.data));
             }
 
-            usedID = shaderProgram.isLinked() ? shaderProgram.getProgramID() : 0;
-            shaderProgram.use();
+            usedID = packedShaderProgram[shaderProgramIndex].isLinked() ? packedShaderProgram[shaderProgramIndex].getProgramID() : 0;
+            packedShaderProgram[shaderProgramIndex].use();
         }
 
 
@@ -641,8 +704,8 @@ namespace LEapsGL {
          *
          * @param spo The ShaderProgramObject to mark.
          */
-        void activateKeepMemory(const ShaderProgramObject & spo) {
-            activateKeepMemory(shaderProgramMap[spo].getDescriptor());
+        void activateKeepMemory(ShaderProgramEntityHandler& shaderProgramEntityHandler) {
+            activateKeepMemory(packedShaderProgram[getShaderProgramIndex(shaderProgramEntityHandler)].getDescriptor());
         }
 
         /**
@@ -677,8 +740,8 @@ namespace LEapsGL {
          *
          * @param spo The ShaderProgramObject to unmark.
          */
-        void deactivateKeepMemory(const ShaderProgramObject & spo) {
-            deactivateKeepMemory(shaderProgramMap[spo].getDescriptor());
+        void deactivateKeepMemory(ShaderProgramEntityHandler& shaderProgramEntityHandler) {
+            deactivateKeepMemory(packedShaderProgram[getShaderProgramIndex(shaderProgramEntityHandler)].getDescriptor());
         }
 
         /**
@@ -726,15 +789,13 @@ namespace LEapsGL {
             auto& handler = getOrCreateHandler(desc);
             handler.usedProgram.push_back(shaderProgram.getName());
         }
-        void AssignDescription(const ShaderProgramObject& name, const ShaderObjectDescription desc) {
-            auto iter = shaderProgramMap.find(name);
-            if (iter == shaderProgramMap.end()) throw runtime_error("There is no shader program: " + string(name.c_str()));
-            AssignDescription(iter->second, desc);
+        void AssignDescription(ShaderProgramEntityHandler& shaderProgramEntityHandler, const ShaderObjectDescription desc) {
+            auto& shaderProgram = packedShaderProgram[getShaderProgramIndex(shaderProgramEntityHandler)];
+            AssignDescription(shaderProgram, desc);
         }
         template <typename ShaderObjectDescriptionContainer = vector<ShaderObjectDescription>>
-        void AssignDescription(const ShaderProgramObject& desc, const ShaderObjectDescriptionContainer& items) {
-            auto& shaderProgram = shaderProgramMap[desc];
-            for(const auto& item : items) AssignDescription(shaderProgram, item);
+        void AssignDescription(ShaderProgramEntityHandler& shaderProgramEntityHandler, const ShaderObjectDescriptionContainer& items) {
+            for(const auto& item : items) AssignDescription(packedShaderProgram[getShaderProgramIndex(shaderProgramEntityHandler)], item);
         }
 
         /**
@@ -788,9 +849,8 @@ namespace LEapsGL {
          * @tparam T The data type of the uniform value.
          */
         template <class T>
-        void SetUniform(const ShaderProgramObject& shaderProgramIdentifier, string& name, const T& value) {
-            const __internal::ShaderProgram& program = shaderProgramMap[shaderProgramIdentifier];
-            auto id = program.id;
+        void SetUniform(ShaderProgramEntityHandler& shaderProgramEntityHandler, const string& name, const T& value) {
+            auto id = packedShaderProgram[getShaderProgramIndex(shaderProgramEntityHandler)].getProgramID();
             GLint location = glGetUniformLocation(id, name.c_str());
             SetUniform(id, location, name, value);
         }
@@ -820,10 +880,9 @@ namespace LEapsGL {
          * @param spo The ShaderProgramObject to which source code will be assigned.
          * @param code_generator The code generator function that generates the source code for the shader objects.
          */
-        void AssignShaderObjectSourceCode(const ShaderProgramObject& spo,
+        void AssignShaderObjectSourceCode(ShaderProgramEntityHandler& shaderProgramEntityHandler,
             function<string(const ShaderObjectDescription&)> code_generator = DefaultCodeGenerator) {
-            auto& iter = shaderProgramMap[spo];
-            AssignShaderObjectSourceCode(iter.getDescriptor());
+            AssignShaderObjectSourceCode(packedShaderProgram[getShaderProgramIndex(shaderProgramEntityHandler)].getDescriptor());
         }
         /**
          * @brief Assign source code to shader objects with the specified ShaderObjectDescription.
@@ -864,9 +923,8 @@ namespace LEapsGL {
          *
          * @param spo The ShaderProgramObject for which shader objects will be destroyed.
          */
-        void DestroyShaderObject(const ShaderProgramObject& spo) {
-            auto & iter = shaderProgramMap[spo];
-            DestroyShaderObject(iter.getDescriptor());
+        void DestroyShaderObject(ShaderProgramEntityHandler& shaderProgramEntityHandler) {
+            DestroyShaderObject(packedShaderProgram[getShaderProgramIndex(shaderProgramEntityHandler)].getDescriptor());
         };
         /**
          * @brief Destroy shader objects with the specified ShaderObjectDescription.
@@ -904,7 +962,7 @@ namespace LEapsGL {
             auto iter = shaderDescriptionMap.find(desc);
             if (iter == shaderDescriptionMap.end()) return;
             auto& handler = iter->second;
-            for (const auto & prog_name : handler.usedProgram) shaderProgramMap[prog_name].resetLinked();
+            for (const auto & prog_name : handler.usedProgram) packedShaderProgram[getShaderProgramIndex(prog_name)].resetLinked();
         }
 
         /**
@@ -914,21 +972,67 @@ namespace LEapsGL {
          *
          * @param spo The ShaderProgramObject for which the shader program will be relinked.
          */
-        void RelinkToShaderProgram(const ShaderProgramObject& spo) {
-            auto& program = shaderProgramMap[spo];
-            program.resetLinked();
+        void RelinkToShaderProgram(ShaderProgramEntityHandler& shaderProgramEntityHandler) {
+            packedShaderProgram[getShaderProgramIndex(shaderProgramEntityHandler)].resetLinked();
         }
 
-        const vector<ShaderObjectDescription>& getAllDescirption(string name) {
-            return shaderProgramMap[ShaderProgramObject(name.c_str())].getDescriptor();
+        const vector<ShaderObjectDescription>& getAllDescirption(const ShaderProgramIdentifier& name) {
+            return packedShaderProgram[getShaderProgramIndex(name)].getDescriptor();
         }
-        const vector<ShaderObjectDescription>& getAllDescirption(ShaderProgramObject spo) {
-            return shaderProgramMap[spo].getDescriptor();
+        const vector<ShaderObjectDescription>& getAllDescirption(ShaderProgramEntityHandler & shaderProgramEntityHandler) {
+            return packedShaderProgram[getShaderProgramIndex(shaderProgramEntityHandler)].getDescriptor();
         }
+
 
     private:
-        void DeleteShaderProgram(__internal::ShaderProgram& shaderProgram) {
-            for (const auto& x : shaderProgram.getDescriptor()) {
+        /**
+         * @brief Get the index of a ShaderProgram using a ShaderProgramEntityHandler.
+         *
+         * This function searches for the index of a ShaderProgram using a provided ShaderProgramEntityHandler.
+         * It first attempts to extract an entity from the ShaderProgramEntityHandler, compares it with stored entities,
+         * and if a match is found, returns the index. If no match is found, it looks up the ShaderProgram by its name.
+         * If the name is found in the map, the ShaderProgramEntityHandler's temporarl_entity is set to the found entity's temporarl_entity.
+         *
+         * @param shaderProgramEntityHandler The ShaderProgramEntityHandler to search for.
+         * @return The index of the ShaderProgram, or 0 if not found.
+         */
+        size_t getShaderProgramIndex(ShaderProgramEntityHandler & shaderProgramEntityHandler) {
+            entity_type idx = traits_type::to_entity(shaderProgramEntityHandler.temporarl_entity.getValue());
+
+            if (idx != ShaderProgramInvalid) {
+                auto& entity = packedEntity[idx];
+                if (traits_type::is_same(entity.temporarl_entity.data, shaderProgramEntityHandler.temporarl_entity.data)) {
+                    return idx;
+                }
+            }
+
+            auto iter = shaderProgramMap.find(shaderProgramEntityHandler.name);
+            if (iter == shaderProgramMap.end()) {
+                shaderProgramEntityHandler.temporarl_entity.data = null_entity();
+                return ShaderProgramInvalid;
+            }
+            shaderProgramEntityHandler.temporarl_entity = packedEntity[iter->second].temporarl_entity;
+            return iter->second;
+        }
+        /**
+         * @brief Get the index of a ShaderProgram using a ShaderProgramIdentifier.
+         *
+         * This function searches for the index of a ShaderProgram using a provided ShaderProgramIdentifier (name).
+         * It looks up the ShaderProgram by its name in the map.
+         * If the name is found, it returns the index; otherwise, it returns 0.
+         *
+         * @param name The name of the ShaderProgram to search for.
+         * @return The index of the ShaderProgram, or 0 if not found.
+         */
+        inline size_t getShaderProgramIndex(const ShaderProgramIdentifier & name) {
+            auto iter = shaderProgramMap.find(name);
+            if (iter != shaderProgramMap.end()) return 0;
+            return iter->second;
+        }
+
+        void DeleteShaderProgram(size_t idx) {
+            auto& shaderProgram = packedShaderProgram[idx];
+            for (const auto& x : packedShaderProgram[idx].getDescriptor()) {
                 auto& handler = getOrCreateHandler(x);
                 auto it = std::find(handler.usedProgram.begin(), handler.usedProgram.end(), shaderProgram.getName());
                 if (it != handler.usedProgram.end()) {
@@ -936,12 +1040,13 @@ namespace LEapsGL {
                     checkAndRemoveShaderObject(handler);
                 }
             }
-            shaderProgram.deleteProgram();
             shaderProgramMap.erase(shaderProgram.getName());
+            packedShaderProgram[idx].deleteProgram();
+            packedEntity[idx].temporarl_entity.data = traits_type::reset(packedEntity[idx].temporarl_entity.data);
         }
         struct Handler {
             int index;
-            vector<ShaderProgramObject> usedProgram;
+            vector<ShaderProgramIdentifier> usedProgram;
         };
 
         void checkAndRemoveShaderObject(Handler& handler) {
@@ -970,7 +1075,6 @@ namespace LEapsGL {
             shaderObject.SetSourceCode(code_generator(shaderObjectDescription));
             return shaderObject;
         }
-
         Handler& getOrCreateHandler(const ShaderObjectDescription desc){
             auto iter = shaderDescriptionMap.find(desc);
             if (iter == shaderDescriptionMap.end()) {
@@ -996,7 +1100,11 @@ namespace LEapsGL {
         GLuint usedID = 0;
 
         // ShaderManager Component Access Functions
-        unordered_map<ShaderProgramObject, __internal::ShaderProgram, ShaderProgramObject::FixedStringHashFn> shaderProgramMap;  ///> Shader program mapper
+        unordered_map<ShaderProgramIdentifier, size_t, ShaderProgramIdentifier::FixedStringHashFn> shaderProgramMap;  ///> Shader program mapper
+        SparseVector<__internal::ShaderProgram> packedShaderProgram;
+        SparseVector<ShaderProgramEntityHandler> packedEntity;
+
+//        entity_traits<std::uint64_t>::
 
         // unordred <shaderObjectDescription, option>
         unordered_map<ShaderObjectDescription, Handler, ShaderObjectDescription::ShaderObjectDescriptionHash> shaderDescriptionMap;  ///> Sparse map (Shader description to shader map)

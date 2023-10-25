@@ -6,6 +6,52 @@ namespace LEapsGL {
     * Type system Setting
     */
 
+    template <typename T>
+    class SparseVector {
+    public:
+        T& operator[](std::size_t index) {
+            if (index >= data.size()) {
+                size_t resized = data.size() + 1;
+                while (index >= resized) resized *= 2;
+                data.resize(resized + 1);
+            }
+            return data[index];
+        }
+    private:
+        std::vector<T> data;
+    };
+
+    template <typename Type, typename ManagerType>
+    struct temporary {
+        temporary() :data{} {};
+        temporary(Type _d) :data{ _d } {};
+        const Type& getValue() const {
+            return data;
+        };
+
+    private:
+        friend ManagerType;
+        void setValue(const Type& t) {
+            data = t;
+        };
+        Type& getRef() {
+            return data;
+        };
+        Type data;
+    };
+
+    /**
+    * @brief LazyEntityReference is a structure for maintaining a reference to an entity
+    * while allowing retrieval using a primary key when the reference is invalidated.
+    *
+    * This structure stores a reference to an entity of type EntityType and a primary key
+    * of type PrimaryType. If the entity reference becomes invalid, the primary key can
+    * be used to retrieve the entity again.
+    *
+    * @tparam EntityType The type of the entity to reference.
+    * @tparam PrimaryType The type of the primary key used for retrieval.
+    */
+
     template<typename Type>
     [[nodiscard]] constexpr auto stripped_type_name() noexcept {
         std::string_view pretty_function{ __MY_PRETTY_FUNCTION_SIGNITURE };

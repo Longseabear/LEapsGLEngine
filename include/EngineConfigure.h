@@ -19,11 +19,16 @@ namespace LEapsGL {
 #define __MY_PRETTY_FUNCTION_END '>'
 #endif
 
-
     /*
         ShaderFramework Setting
     */
     // Maximum length ShaderProgramName = default 128
     constexpr size_t SHADER_ShaderProgramNameMaxLen = 128;
     constexpr GLuint SHADER_INVALID = 0;
+
+
+    /*
+        Entity SEtting
+    */
+    constexpr size_t PAGE_SIZE = 4096;
 }
