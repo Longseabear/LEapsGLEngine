@@ -23,7 +23,7 @@ namespace LEapsGL {
         ShaderFramework Setting
     */
     // Maximum length ShaderProgramName = default 128
-    constexpr size_t SHADER_ShaderProgramNameMaxLen = 128;
+    constexpr size_t SHADER_ShaderProgramNameMaxLen = 20;
     constexpr GLuint SHADER_INVALID = 0;
 
 

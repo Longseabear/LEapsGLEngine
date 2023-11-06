@@ -144,6 +144,9 @@ namespace LEapsGL {
 
     using PathString = FixedString<256>;
 
+    template <typename Option, typename Type, typename Entity>
+    struct OptionSelector;
+
     /**
      * @brief A class that extends FixedString to store a fixed-size string and calculate its hash value.
      *

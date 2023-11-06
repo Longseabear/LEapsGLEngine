@@ -640,24 +640,38 @@ namespace LEapsGL {
          * @param name The name of the ShaderProgramObject to use.
          */
         void UseShaderProgram(ShaderProgramEntityHandler& shaderProgramEntityHandler) noexcept{
+            // Get the index of the shader program based on its name
             size_t shaderProgramIndex = getShaderProgramIndex(shaderProgramEntityHandler);
+
+            // Check if the shader program was found; otherwise, throw an error
             if (shaderProgramIndex == ShaderProgramInvalid) throw std::runtime_error("shader program not founded. Name: " + string(shaderProgramEntityHandler.name.c_str()));
 
+
+            // If the shader program is not linked, initialize it
             if (!packedShaderProgram[shaderProgramIndex].isLinked()) {
                 packedShaderProgram[shaderProgramIndex].InitShaderProgram();
 
+                // Check if there was a previous instance of the same shader program
                 auto oldIter = shaderProgramMap.find(shaderProgramEntityHandler.name);
                 if (oldIter != shaderProgramMap.end()) {
                     const size_t oldIndex = oldIter->second;
+
+                    // If there was a previous instance, reset it
                     if (oldIndex != 0) {
                         packedEntity[oldIndex].temporarl_entity.data = traits_type::reset(packedEntity[oldIndex].temporarl_entity.data);
                     }
                 }
+
+                // Move the new shader program instance into a temporary variable
                 __internal::ShaderProgram tmpInstance = std::move(packedShaderProgram[shaderProgramIndex]);
 
+                // Get the new shader program's index
                 const size_t newIndex = tmpInstance.getProgramID();
+
+                // Set the entity data for the new shader program
                 shaderProgramEntityHandler.temporarl_entity.data = traits_type::set_entity(packedEntity[newIndex].temporarl_entity.data, newIndex);
                 
+                // Update the shader program mapping
                 oldIter->second = newIndex;
 
                 packedEntity[newIndex] = shaderProgramEntityHandler;
