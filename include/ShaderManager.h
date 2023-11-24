@@ -36,30 +36,35 @@
 
 
 #include <glad/glad.h>
+#include <iostream>
 #include "Object.h"
 #include "Color.h"
 #include <map>
 #include <string>
 #include <vector>
 #include <fstream>
-#include <iostream>
 #include <sstream>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
-#include <Type.h>
+#include <core/Type.h>
 #include <EngineConfigure.h>
 #include <unordered_map>
 #include <filesystem>
 #include <optional>
 #include <Timer.h>
 #include <functional>
-#include "entity.h"
+#include "core/World.h"
+
+#include <core/Container.h>
+#include <core/entity.h>
+
+
 using namespace std;
 
 #define PRINT_NAME(name) (#name)
 
-#define SHADER_PROGRAM_DEBUG_LOG_ON true
+#define SHADER_PROGRAM_DEBUG_LOG_ON false
 
 #ifdef SHADER_PROGRAM_DEBUG_LOG_ON
 #define SHADER_PROGRAM_DEBUG_LOG(message) \
@@ -69,7 +74,7 @@ using namespace std;
 #endif
 
 
-char infoLog[1024];
+inline char infoLog[1024];
 namespace LEapsGL {
     class ShaderManager;
     enum ShaderObjectSource {
@@ -81,24 +86,6 @@ namespace LEapsGL {
     //enum class ShaderProgramEntity : std::uint64_t {};
     using ShaderProgramEntity = std::uint64_t;
     constexpr size_t ShaderProgramInvalid = 0;
-
-    struct ShaderProgramEntityHandler {
-        using tempo_type = temporary<ShaderProgramEntity, ShaderManager>;
-
-        using entity_type = entity_traits<ShaderProgramEntity>::entity_type;
-        using version_type = entity_traits<ShaderProgramEntity>::version_type;
-        ShaderProgramEntityHandler(ShaderProgramIdentifier _name) :name(_name) {
-            temporarl_entity = tempo_type{ (ShaderProgramEntity)null_entity {} };
-        };
-        ShaderProgramEntityHandler() {
-            temporarl_entity = tempo_type{ (ShaderProgramEntity)null_entity {} };
-        }
-
-        ShaderProgramIdentifier name;
-    private:
-        friend ShaderManager;
-        tempo_type temporarl_entity;
-    };
 
     /**
      * @struct ShaderObjectDescription
@@ -163,7 +150,7 @@ namespace LEapsGL {
         ShaderObjectSource sourceType = FROM_FILE;
     };
 
-    const char* GetShaderTypeName(GLenum type) {
+    inline const char* GetShaderTypeName(GLenum type) {
         switch (type)
         {
         case GL_VERTEX_SHADER:
@@ -176,7 +163,7 @@ namespace LEapsGL {
         return "Unknown Shader Type";
     }
 
-    std::string ReadFile(const char* filePath)
+    inline std::string ReadFile(const char* filePath)
     {
         std::string content;
         std::ifstream fileStream(filePath, std::ios::in);
@@ -207,7 +194,7 @@ namespace LEapsGL {
      * it throws an exception indicating that the Entity type must implement a to_string function and accept
      * a code_generator as an argument.
      */
-    string DefaultCodeGenerator(const ShaderObjectDescription& shaderObjectDescription) {
+    inline string DefaultCodeGenerator(const ShaderObjectDescription& shaderObjectDescription) {
         switch (shaderObjectDescription.sourceType)
         {
         case LEapsGL::FROM_FILE:
@@ -552,8 +539,24 @@ namespace LEapsGL {
      * Clients interact with this class to create, delete, and assign descriptions to shader program objects.
      * The ShaderManager maintains internal state based on these interactions. 
      */
-    class ShaderManager {
+    class ShaderManager : public IContext{
     public:
+        struct ShaderProgramEntityHandler {
+            using read_only = ReadOnlyType<ShaderProgramEntity, ShaderManager>;
+
+            using entity_type = entity_traits<ShaderProgramEntity>::entity_type;
+            using version_type = entity_traits<ShaderProgramEntity>::version_type;
+            ShaderProgramEntityHandler(ShaderProgramIdentifier _name) :name(_name) {
+                value = read_only{ (ShaderProgramEntity)null_entity {} };
+            };
+            ShaderProgramEntityHandler() {
+                value = read_only{ (ShaderProgramEntity)null_entity {} };
+            }
+
+            ShaderProgramIdentifier name;
+            read_only value;
+        };
+
         using traits_type = entity_traits<ShaderProgramEntity>;
         using entity_type = entity_traits<ShaderProgramEntity>::entity_type;
         using version_type = entity_traits<ShaderProgramEntity>::version_type;
@@ -608,13 +611,13 @@ namespace LEapsGL {
             const size_t newIndex = program.getProgramID();
 
             iter = shaderProgramMap.emplace(shaderProgramEntityHandler.name, program.getProgramID()).first;
-            shaderProgramEntityHandler.temporarl_entity.data = traits_type::construct(
-                newIndex, traits_type::to_version(packedEntity[newIndex].temporarl_entity.data)
+            shaderProgramEntityHandler.value.data = traits_type::construct(
+                newIndex, traits_type::to_version(packedEntity[newIndex].value.data)
             );
             packedEntity[newIndex] = shaderProgramEntityHandler;
             packedShaderProgram[newIndex] = std::move(program);
 
-            SHADER_PROGRAM_DEBUG_LOG("[Info] Created Shader Program: " << string(shaderProgramEntityHandler.name.c_str()) << " Entity: " << traits_type::to_entity(shaderProgramEntityHandler.temporarl_entity.data) << " Version: " << traits_type::to_version(shaderProgramEntityHandler.temporarl_entity.data));
+            SHADER_PROGRAM_DEBUG_LOG("[Info] Created Shader Program: " << string(shaderProgramEntityHandler.name.c_str()) << " Entity: " << traits_type::to_entity(shaderProgramEntityHandler.value.data) << " Version: " << traits_type::to_version(shaderProgramEntityHandler.value.data));
 
             return shaderProgramEntityHandler;
         }
@@ -646,7 +649,7 @@ namespace LEapsGL {
             // Check if the shader program was found; otherwise, throw an error
             if (shaderProgramIndex == ShaderProgramInvalid) throw std::runtime_error("shader program not founded. Name: " + string(shaderProgramEntityHandler.name.c_str()));
 
-
+            
             // If the shader program is not linked, initialize it
             if (!packedShaderProgram[shaderProgramIndex].isLinked()) {
                 packedShaderProgram[shaderProgramIndex].InitShaderProgram();
@@ -658,7 +661,7 @@ namespace LEapsGL {
 
                     // If there was a previous instance, reset it
                     if (oldIndex != 0) {
-                        packedEntity[oldIndex].temporarl_entity.data = traits_type::reset(packedEntity[oldIndex].temporarl_entity.data);
+                        packedEntity[oldIndex].value.data = traits_type::reset(packedEntity[oldIndex].value.data);
                     }
                 }
 
@@ -669,7 +672,7 @@ namespace LEapsGL {
                 const size_t newIndex = tmpInstance.getProgramID();
 
                 // Set the entity data for the new shader program
-                shaderProgramEntityHandler.temporarl_entity.data = traits_type::set_entity(packedEntity[newIndex].temporarl_entity.data, newIndex);
+                shaderProgramEntityHandler.value.data = traits_type::set_entity(packedEntity[newIndex].value.data, newIndex);
                 
                 // Update the shader program mapping
                 oldIter->second = newIndex;
@@ -683,10 +686,10 @@ namespace LEapsGL {
                 }
                 packedShaderProgram[shaderProgramIndex].link();
 
-                SHADER_PROGRAM_DEBUG_LOG("[Info] Modified Shader Program: " << string(shaderProgramEntityHandler.name.c_str()) << " Entity: " << traits_type::to_entity(shaderProgramEntityHandler.temporarl_entity.data) << " Version: " << traits_type::to_version(shaderProgramEntityHandler.temporarl_entity.data));
+                SHADER_PROGRAM_DEBUG_LOG("[Info] Modified Shader Program: " << string(shaderProgramEntityHandler.name.c_str()) << " Entity: " << traits_type::to_entity(shaderProgramEntityHandler.value.data) << " Version: " << traits_type::to_version(shaderProgramEntityHandler.value.data));
             }
 
-            usedID = packedShaderProgram[shaderProgramIndex].isLinked() ? packedShaderProgram[shaderProgramIndex].getProgramID() : 0;
+            state.usedID = packedShaderProgram[shaderProgramIndex].isLinked() ? packedShaderProgram[shaderProgramIndex].getProgramID() : 0;
             packedShaderProgram[shaderProgramIndex].use();
         }
 
@@ -846,8 +849,11 @@ namespace LEapsGL {
             else if constexpr (std::is_same<T, double>::value) {
                 glUniform1f(location, static_cast<GLfloat>(value));
             }
+            else if constexpr (std::is_same<T, unsigned int>::value) {
+                glUniform1f(location, static_cast<GLuint>(value));
+            }
             else {
-                cout << stripped_type_name<T>() << " type is not defined.";
+                cout << stripped_type_name<T>() << " type is not defined. (SetUniform Fail)";
 //                static_assert(false, "Unsupported type for setUniform");   
             }
         }
@@ -880,7 +886,7 @@ namespace LEapsGL {
          */
         template <class T>
         void SetUniform(const string& name, const T& value) {
-            auto id = usedID;
+            auto id = state.usedID;
             GLint location = glGetUniformLocation(id, name.c_str());
             if constexpr (SHADER_PROGRAM_DEBUG_LOG_ON) if(location == -1) SHADER_PROGRAM_DEBUG_LOG("[WANING] location = -1 detected: " << name << "\n");
             SetUniform(id, location, name, value);
@@ -1011,21 +1017,21 @@ namespace LEapsGL {
          * @return The index of the ShaderProgram, or 0 if not found.
          */
         size_t getShaderProgramIndex(ShaderProgramEntityHandler & shaderProgramEntityHandler) {
-            entity_type idx = traits_type::to_entity(shaderProgramEntityHandler.temporarl_entity.getValue());
+            entity_type idx = traits_type::to_entity(shaderProgramEntityHandler.value.getValue());
 
             if (idx != ShaderProgramInvalid) {
                 auto& entity = packedEntity[idx];
-                if (traits_type::is_same(entity.temporarl_entity.data, shaderProgramEntityHandler.temporarl_entity.data)) {
+                if (traits_type::is_same(entity.value.data, shaderProgramEntityHandler.value.data)) {
                     return idx;
                 }
             }
 
             auto iter = shaderProgramMap.find(shaderProgramEntityHandler.name);
             if (iter == shaderProgramMap.end()) {
-                shaderProgramEntityHandler.temporarl_entity.data = null_entity();
+                shaderProgramEntityHandler.value.data = null_entity();
                 return ShaderProgramInvalid;
             }
-            shaderProgramEntityHandler.temporarl_entity = packedEntity[iter->second].temporarl_entity;
+            shaderProgramEntityHandler.value = packedEntity[iter->second].value;
             return iter->second;
         }
         /**
@@ -1043,7 +1049,6 @@ namespace LEapsGL {
             if (iter != shaderProgramMap.end()) return 0;
             return iter->second;
         }
-
         void DeleteShaderProgram(size_t idx) {
             auto& shaderProgram = packedShaderProgram[idx];
             for (const auto& x : packedShaderProgram[idx].getDescriptor()) {
@@ -1056,7 +1061,7 @@ namespace LEapsGL {
             }
             shaderProgramMap.erase(shaderProgram.getName());
             packedShaderProgram[idx].deleteProgram();
-            packedEntity[idx].temporarl_entity.data = traits_type::reset(packedEntity[idx].temporarl_entity.data);
+            packedEntity[idx].value.data = traits_type::reset(packedEntity[idx].value.data);
         }
         struct Handler {
             int index;
@@ -1108,22 +1113,21 @@ namespace LEapsGL {
             return returnID;
         }
 
+        struct ShaderManagerState {
+            GLuint usedID;
+        };
 
     private:
-        // Current State
-        GLuint usedID = 0;
+        ShaderManagerState state;
 
         // ShaderManager Component Access Functions
         unordered_map<ShaderProgramIdentifier, size_t, ShaderProgramIdentifier::FixedStringHashFn> shaderProgramMap;  ///> Shader program mapper
-        SparseVector<__internal::ShaderProgram> packedShaderProgram;
         SparseVector<ShaderProgramEntityHandler> packedEntity;
-
-//        entity_traits<std::uint64_t>::
+        SparseVector<__internal::ShaderProgram> packedShaderProgram;
 
         // unordred <shaderObjectDescription, option>
         unordered_map<ShaderObjectDescription, Handler, ShaderObjectDescription::ShaderObjectDescriptionHash> shaderDescriptionMap;  ///> Sparse map (Shader description to shader map)
         vector<ShaderObjectDescription> shaderDescriptions;                    ///> Packed description vector
         vector<__internal::ShaderObject> shaderObjects;                                    ///> Packed shader object vector
-
     };
 }

@@ -6,11 +6,9 @@
 using namespace std;
 
 namespace LEapsGL {
-	class Object {
-	public:
-		string ToString();
-	private:
-		string name;
+    class Object {
+    public:
+        virtual ~Object() {}
 	};
 };
 

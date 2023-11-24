@@ -3,7 +3,6 @@
 using namespace LEapsGL;
 using namespace std;
 
-
 ImageFormat LEapsGL::GetImageFormatFromPath(const string path) {
 	static std::map<string, ImageFormat> extToFormat = {
 		{"jpg", {GL_RGB, GL_UNSIGNED_BYTE}}, {"png", {GL_RGBA, GL_UNSIGNED_BYTE}}
@@ -32,7 +31,7 @@ Image LEapsGL::Image::LoadImage(const char* path)
 		stbi_image_free);
 
 	if (img.pixels == nullptr) {
-		std::cout << "failed to load texture\n";
+		std::cout << path << " failed to load texture (Image.cpp)\n";
 		return Image();
 	}
 

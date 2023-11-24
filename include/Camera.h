@@ -31,6 +31,38 @@ namespace LEapsGL {
         float mouseSensitivity;
         float zoom;
 
+        friend void swap(Camera& lhs, Camera& rhs) noexcept {
+            using std::swap;
+            swap(lhs.position, rhs.position);
+            swap(lhs.front, rhs.front);
+            swap(lhs.up, rhs.up);
+            swap(lhs.right, rhs.right);
+            swap(lhs.worldUp, rhs.worldUp);
+            swap(lhs.yaw, rhs.yaw);
+            swap(lhs.pitch, rhs.pitch);
+            swap(lhs.movementSpeed, rhs.movementSpeed);
+            swap(lhs.mouseSensitivity, rhs.mouseSensitivity);
+            swap(lhs.zoom, rhs.zoom);
+        }
+
+
+        Camera(const Camera& rhs) = default;
+
+        Camera(Camera&& rhs) noexcept : Camera() {
+            swap(*this, rhs);
+        }
+        // Move constructor
+        Camera& operator=(Camera other) {
+            swap(*this, other);
+            return *this;
+        }
+        // don't need move operator in copy and swap idiom.
+        //Texture2D& operator=(Texture2D&& other) noexcept {
+        //	swap(*this, other);
+        //	return *this;
+        //}
+
+
         Camera(glm::vec3 _position = glm::vec3(0.0f, 0.0f, 0.0f),
             glm::vec3 _up = glm::vec3(0.0f, 1.0f, 0.0f), float _yaw=YAW, float _pitch=PITCH) : front(glm::vec3(0.0f, 0.0f, -1.0f)), movementSpeed(SPEED), mouseSensitivity(SENSITIVITY), zoom(ZOOM)
         {

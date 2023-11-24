@@ -22,6 +22,10 @@ namespace LEapsGL {
 		static Image LoadImage(const char*);
 		template<typename T> static Image CreateImage(int width, int height, int nrchannel,
 						   ImageFormat fmt);
+
+        ~Image() {
+
+        };
 	};
 	template<typename T>
 	inline Image Image::CreateImage(int width, int height, int nrchannel, ImageFormat fmt)
