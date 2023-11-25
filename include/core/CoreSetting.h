@@ -29,4 +29,9 @@ namespace LEapsGL{
     */
     constexpr size_t PROXY_SEED = 18446744073709551557;
     constexpr size_t HASH_RANDOM_SEED = 18446744073709551609;
+
+    /*
+        Type
+    */
+    constexpr size_t STR_IDENTIFIER_SIZE = 32;
 }

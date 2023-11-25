@@ -170,6 +170,7 @@ namespace LEapsGL {
     };
 
     using PathString = FixedString<256>;
+    using ObjectNameType = FixedString<STR_IDENTIFIER_SIZE>;
 
     template <typename Option, typename Type, typename Entity>
     struct OptionSelector;

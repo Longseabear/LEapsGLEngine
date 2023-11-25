@@ -176,6 +176,7 @@ namespace LEapsGL {
 
         int width, height, nrchannel;
         LEapsGL::ImageFormat fmt;
+        ObjectNameType name;
 
         // -----------------------------------
         virtual instance_type generateInstance() const {
@@ -188,7 +189,7 @@ namespace LEapsGL {
         virtual size_t hash() override
         {
             size_t h = LEapsGL::HASH_RANDOM_SEED;
-            LEapsGL::hash_combine(h, width, height, nrchannel, fmt.colorFormat, fmt.colorType);
+            LEapsGL::hash_combine(h, width, height, nrchannel, fmt.colorFormat, fmt.colorType, name.c_str());
             // Implement an object creation method for a given specification
             return h;
         }
@@ -203,8 +204,9 @@ namespace LEapsGL {
             instance.type = type;
             return LEapsGL::ProxyTraits::Get<TextureFromFileSpecification>(instance);
         }
-        static auto from_blank(int width, int height, int nrchannel, LEapsGL::ImageFormat fmt, TextureType type = TextureType::IMAGE) {
+        static auto from_blank(ObjectNameType name, int width, int height, int nrchannel, LEapsGL::ImageFormat fmt, TextureType type = TextureType::IMAGE) {
             TextureFromBlankImageSpecification instance;
+            instance.name = name;
             instance.width = width;
             instance.height = height;
             instance.nrchannel = nrchannel;

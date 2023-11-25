@@ -118,6 +118,10 @@ namespace LEapsGL {
         void emplace(const Entity& entt, ComponentTypeSelector_t<std::decay_t<Type>>&& data) {
             this->assure<Type>().emplace(entt, std::forward<ComponentTypeSelector_t<std::decay_t<Type>>>(data));
         }
+        template <typename Type>
+        void emplace(const Entity& entt, const ComponentTypeSelector_t<std::decay_t<Type>>& data) {
+            this->emplace<Type>(entt, ComponentTypeSelector_t<std::decay_t<Type>>(data));
+        }
 
         template <typename Type>
         bool remove(const Entity& entt) {
@@ -183,9 +187,10 @@ namespace LEapsGL {
     using ComponentOpt = LEapsGL::opt::ComponentPoolType;
     using BaseWorld = LEapsGL::World<LEapsGL::BaseEntityType>;
 
-
     class Universe : public Singleton<Universe> {
     public:
+        using BaseEntityType = LEapsGL::BaseEntityType;
+
         static inline LEapsGL::BaseWorld& GetBaseWorld() {
             return Universe::get_instance().baseWorld;
         }
