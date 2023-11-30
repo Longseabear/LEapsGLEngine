@@ -84,7 +84,6 @@ namespace LEapsGL {
         size_t size() const{
             return entityList.size() - free_entity_num;
         }
-
         const Entity Create() {
             if (free_entity_num == 0) {
                 entityList.emplace_back(traits_type::construct(entityList.size(), 0));
@@ -115,12 +114,26 @@ namespace LEapsGL {
         }
 
         template <typename Type>
+        void emplace(const Entity& entt) {
+            using option_traits = OptionSelector<component_pool_type, Type, Entity>;
+            static_assert(option_traits::value == opt::ComponentPoolType::Flag);
+            this->assure<Type>().emplace(entt);
+        }
+        template <typename Type>
         void emplace(const Entity& entt, ComponentTypeSelector_t<std::decay_t<Type>>&& data) {
             this->assure<Type>().emplace(entt, std::forward<ComponentTypeSelector_t<std::decay_t<Type>>>(data));
         }
         template <typename Type>
         void emplace(const Entity& entt, const ComponentTypeSelector_t<std::decay_t<Type>>& data) {
-            this->emplace<Type>(entt, ComponentTypeSelector_t<std::decay_t<Type>>(data));
+            auto _d = data;
+            this->emplace<Type>(entt, std::move(_d));
+        }
+
+        void clear() {
+            for (auto& entt : entityList) Destroy(entt);
+            entityList.clear();
+            free_entity_num = 0;
+            free_entity_id = 0;
         }
 
         template <typename Type>
@@ -171,10 +184,12 @@ namespace LEapsGL {
             return *option_traits::ToComponentPool(this->assureComponent<Type>());
         }
 
-        template <typename... Types>
-        View<typename OptionSelector< component_pool_type, Types, Entity>::template DerivedType...> view() {
+        
+        template <typename... Types, typename... FilterType>
+        View<W_ComponentPool<typename OptionSelector<component_pool_type, Types, Entity>::template DerivedType...>,
+        Filter<typename OptionSelector<component_pool_type, FilterType, Entity>::template DerivedType...>> view(Filter<FilterType...> tmp = Filter<>{}) {
             static_assert((std::is_same_v<Entity, EntityTypeSelector_t<Types>> && ...), "All types within the View must be associated with the same entity system.");
-            return { &this->assure<std::remove_const_t<Types>>()... };
+            return { &this->assure<std::remove_const_t<Types>>()... ,  &this->assure<std::remove_const_t<FilterType>>()... };
         }
 
     private:
