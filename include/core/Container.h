@@ -93,6 +93,7 @@ namespace LEapsGL{
 
     template <typename Entity, typename Allocator = std::allocator<Entity>>
     class sparse_array : public ContainerBase <Entity>{
+    protected:
         using alloc_traits = std::allocator_traits<Allocator>;
         using sparse_type = std::vector <typename alloc_traits::pointer, typename alloc_traits::template rebind_alloc<typename alloc_traits::pointer>>;
         using packed_type = std::vector<Entity, Allocator>;
@@ -102,6 +103,7 @@ namespace LEapsGL{
         using entity_type = typename LEapsGL::entity_traits<Entity>::entity_type;
         using version_type = typename LEapsGL::entity_traits<Entity>::version_type;
 
+    private:
         void release() {
             CONTAINER_DEBUG_LOG("Sparse array released..");
 
@@ -198,6 +200,7 @@ namespace LEapsGL{
 
             return true;
         }
+
         size_t size() const {
             return packed.size();
         }
@@ -363,7 +366,7 @@ namespace LEapsGL{
         // -------------------------------------------------
         // Container pool interface
         component_type& get(const Entity& entt) {
-            return components[(size_t)traits_type::to_entity(get_index(entt))];
+            return components[(size_t)get_index(entt)];
         }
         bool contains(const Entity& entt) {
             for (const auto& x : this->packed) if (x == entt) return true;
@@ -408,6 +411,91 @@ namespace LEapsGL{
         vector<component_type> components;
     };
 
+    template <typename Type, typename Entity, typename Allocator = std::allocator<typename ComponentTypeSelector_t<Type>>>
+    class FlagComponentPool : public sparse_array<Entity, typename std::allocator_traits<Allocator>::template rebind_alloc<Entity>> {
+        using alloc_traits = std::allocator_traits<Allocator>;
+    public:
+        using traits_type = LEapsGL::entity_traits<Entity>;
+        using value_type = typename LEapsGL::entity_traits<Entity>::value_type;
+        using entity_type = typename LEapsGL::entity_traits<Entity>::entity_type;
+        using version_type = typename LEapsGL::entity_traits<Entity>::version_type;
+        using super = sparse_array<Entity, typename std::allocator_traits<Allocator>::template rebind_alloc<Entity>>;
+        using packed_type = typename super::packed_type;
+
+        struct Iterator {
+        private:
+            int curIdx;
+            vector<Entity>* packed;
+
+        public:
+            Iterator(vector<Entity>* _packed, int idx = 0) : packed{ _packed }, curIdx(idx) {};
+            Iterator& operator++() {
+                curIdx++;
+                return *this;
+            }
+            Iterator operator++(int) {
+                Iterator tmp = *this;
+                ++(*this);
+                return tmp;
+            }
+            tuple<const Entity> operator*() {
+                return std::make_tuple((*packed)[curIdx]);
+            }
+            bool operator==(const Iterator& rhs) const noexcept {
+                return rhs.curIdx == curIdx && rhs.packed == packed;
+            }
+
+            bool operator!=(const Iterator& rhs) const noexcept {
+                return !operator==(rhs);
+            }
+        };
+
+        struct ConstIterator {
+        private:
+            int curIdx;
+            vector<Entity>* packed;
+
+        public:
+            ConstIterator(vector<Entity>* _packed, int idx = 0) : packed{ _packed }, curIdx(idx) {};
+            ConstIterator& operator++() {
+                curIdx++;
+                return *this;
+            }
+            ConstIterator operator++(int) {
+                ConstIterator tmp = *this;
+                ++(*this);
+                return tmp;
+            }
+            std::tuple<const Entity> operator*() const {
+                return std::make_tuple((*packed)[curIdx]);
+            }
+            bool operator==(const ConstIterator& rhs) const noexcept {
+                return rhs.curIdx == curIdx && rhs.packed == packed;
+            }
+
+            bool operator!=(const ConstIterator& rhs) const noexcept {
+                return !operator==(rhs);
+            }
+        };
+
+        using iterator = Iterator;
+        using const_iterator = ConstIterator;
+
+        iterator begin() {
+            return iterator(&this->packed, 0);
+        }
+        const_iterator begin() const {
+            return const_iterator(&this->packed, 0);
+        }
+        iterator end() {
+            return iterator(&this->packed, this->packed.size());
+        }
+        const_iterator end() const {
+            return const_iterator(&this->packed, 0);
+        }
+        // -------------------------------------------------
+    };
+
     //
     //template <typename Entity, typename Value, typename GetHash, typename GetEqual>
     //class ContextContainer : public ContainerBase <Entity> {
@@ -446,8 +534,17 @@ namespace LEapsGL{
     };
 
 
-    template <typename... ComponentPoolTypes>
-    class View {
+    template <typename ... ComponentPoolTypes>
+    struct W_ComponentPool {};
+
+    template <typename ... FilterPools>
+    struct Filter {};
+
+    template <typename...>
+    class View;
+
+    template <typename... ComponentPoolTypes, typename... Filters>
+    class View<W_ComponentPool<ComponentPoolTypes...>, Filter<Filters...>>{
     private:
         using Entity = std::common_type_t<typename ComponentPoolTypes::value_type...>;
         using super_type = std::common_type_t<typename ComponentPoolTypes::super...>;
@@ -464,7 +561,8 @@ namespace LEapsGL{
         const super_type* view;
         void setSmallestComponentPoolPointer() noexcept {
             view = std::get<0>(containers_);
-            std::apply([this](auto*, auto *...components) {((this->view = components->size() < this->view->size() ? components : this->view), ...); }, containers_);
+            std::apply([this](auto *...components) {((this->view = components->size() < this->view->size() ? components : this->view), ...); }, containers_);
+            if constexpr (sizeof...(Filters) > 0) std::apply([this](auto *...filters) {((this->view = filters->size() < this->view->size() ? filters : this->view), ...); }, filters_); 
         }
 
         template<std::size_t ... Index>
@@ -481,7 +579,7 @@ namespace LEapsGL{
         }
 
     public:
-        View(ComponentPoolTypes*... val) : containers_(std::tie(val...)) {
+        View(ComponentPoolTypes*... val, Filters*... filter) : containers_(std::tie(val...)), filters_(std::tie(filter...)) {
             setSmallestComponentPoolPointer();
         }
 
@@ -492,12 +590,13 @@ namespace LEapsGL{
 
         template <typename Fun>
         void each(Fun fn) {
-            this->view ? this->pick_and_each(fn, std::index_sequence_for<ComponentPoolTypes...>{}) : void();
+            this->view ? this->pick_and_each(fn, std::index_sequence_for<ComponentPoolTypes...>{}, std::index_sequence_for<Filters...>{}) : void();
         }
 
-        template <typename Fun, std::size_t... Index>
-        void pick_and_each(Fun& fn, std::index_sequence<Index...> sequence) const {
-            ((this->view == std::get<Index>(containers_) ? this->each<Index>(fn, sequence) : void()), ...);
+        template <typename Fun, std::size_t... Index, std::size_t... FilterIndex>
+        void pick_and_each(Fun& fn, std::index_sequence<Index...> sequence, std::index_sequence<FilterIndex...> filter_sequence) const {
+            ((this->view == std::get<Index>(containers_) ? this->each<Index, true>(fn, sequence, filter_sequence) : void()), ...);
+            ((this->view == std::get<FilterIndex>(filters_) ? this->each<FilterIndex, false>(fn, sequence, filter_sequence) : void()), ...);
         }
 
 
@@ -511,16 +610,29 @@ namespace LEapsGL{
             }
         }
 
-        template <std::size_t BaseIndex, typename Fun, std::size_t... Index>
-        void each(Fun fn, std::index_sequence<Index...>) const {
-            for (const auto items : *std::get<BaseIndex>(containers_)) {
-                if (const auto entt = std::get<0>(items); ((BaseIndex == Index || std::get<Index>(containers_)->contains(entt)) && ...)) {
-                    
-                    if constexpr (std::is_invocable<decltype(fn), std::add_lvalue_reference<ComponentPoolTypes::component_type>::type...>::value) {
-                        std::apply(fn, std::tuple_cat(this->dispatch_get<BaseIndex, Index>(items)...));
+        template <std::size_t BaseIndex, bool IS_COMPONENT_VIEW, typename Fun, std::size_t... Index, std::size_t... FilterIndex>
+        void each(Fun fn, std::index_sequence<Index...>, std::index_sequence<FilterIndex...>) const {
+            if constexpr (IS_COMPONENT_VIEW) {
+                for (const auto items : *std::get<BaseIndex>(containers_)) {
+                    if (const auto entt = std::get<0>(items); ((BaseIndex == Index || std::get<Index>(containers_)->contains(entt)) && ...) && (std::get<FilterIndex>(filters_)->contains(entt) && ...)) {
+                        if constexpr (std::is_invocable<decltype(fn), std::add_lvalue_reference<ComponentPoolTypes::component_type>::type...>::value) {
+                            std::apply(fn, std::tuple_cat(this->dispatch_get<BaseIndex, Index>(items)...));
+                        }
+                        else {
+                            std::apply(fn, std::tuple_cat(std::forward_as_tuple(entt), this->dispatch_get<BaseIndex, Index>(items)...));
+                        }
                     }
-                    else {
-                        std::apply(fn, std::tuple_cat(std::forward_as_tuple(entt), this->dispatch_get<BaseIndex, Index>(items)...));
+                }
+            }
+            else {
+                for (const auto items : *std::get<BaseIndex>(filters_)) {
+                    if (const auto entt = std::get<0>(items); ((std::get<Index>(containers_)->contains(entt)) && ...) && ((BaseIndex == FilterIndex || std::get<FilterIndex>(filters_)->contains(entt)) && ...)) {
+                        if constexpr (std::is_invocable<decltype(fn), std::add_lvalue_reference<ComponentPoolTypes::component_type>::type...>::value) {
+                            std::apply(fn, std::tuple_cat(this->dispatch_get<sizeof...(Index), Index>(items)...));
+                        }
+                        else {
+                            std::apply(fn, std::tuple_cat(std::forward_as_tuple(entt), this->dispatch_get<sizeof...(Index), Index>(items)...));
+                        }
                     }
                 }
             }
@@ -570,10 +682,11 @@ namespace LEapsGL{
 
     private:
         std::tuple<ComponentPoolTypes*...> containers_;
+        std::tuple<Filters*...> filters_;
     };
 
     enum class ComponentPoolType {
-        Default, Dynamic, MemoryOptimized,
+        Default, Dynamic, MemoryOptimized, Flag
     };
     namespace __internal {
         // [Todo] make general selector
@@ -595,6 +708,11 @@ namespace LEapsGL{
             using type = MemoryOptimizedComponentPool<Type, Entity>;
             static constexpr ComponentPoolType value = ComponentPoolType::MemoryOptimized;
         };
+        template <typename Type, typename Entity>
+        struct ComponentPoolSelector<ComponentPoolType::Flag, Type, Entity> {
+            using type = FlagComponentPool<Type, Entity>;
+            static constexpr ComponentPoolType value = ComponentPoolType::Flag;
+        };
 
         // Default Handler : 타입이 어떤 option을 가지는지 (entity X)
         template<typename Type, typename = void>
@@ -606,6 +724,7 @@ namespace LEapsGL{
             static constexpr ComponentPoolType value = Type::COMPONENT_POOL_TYPE;
         };
     };
+
     namespace opt {
         using ComponentPoolType = ComponentPoolType;
 
@@ -637,8 +756,6 @@ namespace LEapsGL{
         virtual void send() = 0;
     };
 
-
-
     template <typename ... DispatchTag>
     struct EventQueue {
         using DispatchPtr = std::shared_ptr<BaseDispatcher>;
@@ -668,4 +785,10 @@ namespace LEapsGL{
     private:
         std::tuple<first_elem<std::queue<DispatchPtr>, DispatchTag>...> queues;
     };
+
+    // Component...
+    namespace ComponentType {
+        using MemoryOptimized = LEapsGL::opt::IOptionComponentPoolType<LEapsGL::opt::ComponentPoolType::MemoryOptimized>;
+        using Flag = LEapsGL::opt::IOptionComponentPoolType<LEapsGL::opt::ComponentPoolType::Flag>;
+    }
 }
