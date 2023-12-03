@@ -32,7 +32,7 @@ namespace LEapsGL {
         std::vector<TextureRequestor> textures;
 
         Mesh(std::vector<Vertex> vertices, std::vector<unsigned int> indices, std::vector<TextureRequestor> textures);
-        void Draw();
+        void Draw(ShaderProgram& shaderProgram);
     private:
         unsigned int VAO, VBO, EBO;
 
@@ -46,7 +46,7 @@ namespace LEapsGL {
         Model(const PathString path) {
             loadModel(path.c_str());
         }
-        void Draw();
+        void Draw(ShaderProgram& shaderProgram);
 
     private:
         vector<Mesh> meshes;

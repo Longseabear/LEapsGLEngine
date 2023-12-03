@@ -119,14 +119,15 @@ namespace LEapsGL {
             static_assert(option_traits::value == opt::ComponentPoolType::Flag);
             this->assure<Type>().emplace(entt);
         }
+
         template <typename Type>
         void emplace(const Entity& entt, ComponentTypeSelector_t<std::decay_t<Type>>&& data) {
             this->assure<Type>().emplace(entt, std::forward<ComponentTypeSelector_t<std::decay_t<Type>>>(data));
         }
         template <typename Type>
         void emplace(const Entity& entt, const ComponentTypeSelector_t<std::decay_t<Type>>& data) {
-            auto _d = data;
-            this->emplace<Type>(entt, std::move(_d));
+            // Copy construct & to_rvalue;
+            this->emplace<Type>(entt, std::move(ComponentTypeSelector_t<std::decay_t<Type>>(data)));
         }
 
         void clear() {
@@ -188,7 +189,11 @@ namespace LEapsGL {
         template <typename... Types, typename... FilterType>
         View<W_ComponentPool<typename OptionSelector<component_pool_type, Types, Entity>::template DerivedType...>,
         Filter<typename OptionSelector<component_pool_type, FilterType, Entity>::template DerivedType...>> view(Filter<FilterType...> tmp = Filter<>{}) {
-            static_assert((std::is_same_v<Entity, EntityTypeSelector_t<Types>> && ...), "All types within the View must be associated with the same entity system.");
+            static_assert((std::is_same_v<Entity, EntityTypeSelector_t<Types>> && ...), ": All types within the View must be associated with the same entity system." 
+                ">>>Class Information: "
+                __FUNCTION__
+                ">>>Function Information "
+                __MY_PRETTY_FUNCTION_SIGNITURE);
             return { &this->assure<std::remove_const_t<Types>>()... ,  &this->assure<std::remove_const_t<FilterType>>()... };
         }
 

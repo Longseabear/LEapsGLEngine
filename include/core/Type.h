@@ -97,8 +97,6 @@ namespace LEapsGL {
         return h ^ (h >> 16);
     }
 
-
-
     inline void hash_combine(std::size_t& seed) { }
 
     template <typename T, typename... Rest>
@@ -163,6 +161,9 @@ namespace LEapsGL {
             return strcmp(_data, other._data) == 0;
         }
 
+        bool operator<(const FixedString<MaxSize>& other) const {
+            return std::less{}(_data, other._data);
+        }
 
     private:
         char _data[MaxSize];
@@ -174,6 +175,11 @@ namespace LEapsGL {
 
     template <typename Option, typename Type, typename Entity>
     struct OptionSelector;
+
+    
+    struct TemplateErrorType {
+
+    };
 
     /**
      * @brief A class that extends FixedString to store a fixed-size string and calculate its hash value.
@@ -269,5 +275,16 @@ namespace LEapsGL {
     //    std::pair<int, std::shared_ptr<ContextEntityBase*>> generate() {
     //    }
     //};
+}
 
+namespace std {
+
+    template <size_t T> 
+    struct hash<LEapsGL::FixedString<T>>
+    {
+        size_t operator()(const LEapsGL::FixedString<T>& x) const
+        {
+            return LEapsGL::FixedString<T>::FixedStringHashFn()(x);
+        }
+    };
 }

@@ -38,19 +38,18 @@ LEapsGL::Mesh::Mesh(std::vector<Vertex> vertices, std::vector<unsigned int> indi
     setupMesh();
 }
 
-void LEapsGL::Mesh::Draw()
+void LEapsGL::Mesh::Draw(ShaderProgram& shaderProgram)
 {
     TextureEnumCounter counter;
-    auto& shaderManager = LEapsGL::Context::getGlobalContext<LEapsGL::ShaderManager>();
 
     for (unsigned int i = 0; i < textures.size(); i++) {
         glActiveTexture(GL_TEXTURE0 + i);
 
-        auto& texture = LEapsGL::Proxy::get(textures[i]);
+        auto& texture = LEapsGL::Proxy::assure(textures[i]);
         string name = LEapsGL::getTextureTypeName(texture.getType());
         //[Todo]
 //        string number = std::to_string(counter.getCount(texture.getType()));
-        shaderManager.SetUniform("material." + name, i);
+        shaderProgram.SetUniform("material." + name, i);
         texture.bind();
     }
     glActiveTexture(GL_TEXTURE0);
@@ -60,9 +59,9 @@ void LEapsGL::Mesh::Draw()
     glBindVertexArray(0);
 }
 
-void LEapsGL::Model::Draw()
+void LEapsGL::Model::Draw(ShaderProgram& shaderProgram)
 {
-    for (auto& x : meshes) x.Draw();
+    for (auto& x : meshes) x.Draw(shaderProgram);
 }
 
 void LEapsGL::Model::loadModel(string path)

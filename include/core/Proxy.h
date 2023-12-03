@@ -15,7 +15,7 @@
 
 
 namespace LEapsGL{
-
+   
     /*
     A proxy object can be used for anything, but when using pointers, it is advisable to implement the rule of five.
     Note: The same proxy_group is assigned to the same world. If instance_output is the same, it is allocated to the same component pool.
@@ -23,18 +23,14 @@ namespace LEapsGL{
         struct ProxyObjectExample {};
     struct SpecificationExample : public LEapsGL::ProxyRequestSpecification<MyObject> {
     public:
-        using Self = SpecificationExample;
-
         // Required::
         // ---------------------------------------------
-        using instance_type = MyObject; // Type of object to create
-        // using proxy_group = LEapsGL::ProxyEntity<MyObjectGroup>; // If a group is specified, it is stored in the same world.
-        friend LEapsGL::ProxyRequestor<Self>; // required. 
+        using instance_type = Texture2D; // Type of object to create
+        using proxy_group = TextureGroup; // If a group is specified, it is stored in the same world. (default: Use the default entity, which is dedicated for self-only usage)
         // ---------------------------------------------
 
         int sample = 0;
 
-    private:
         virtual instance_type generateInstance() const {
             // Implement an object creation method for a given specification
         }
@@ -169,6 +165,13 @@ namespace LEapsGL{
         }
     };
 
+    /**
+     * @brief ProxyRequestor performs the following tasks:
+     *
+     * 1. If the held `entt` is valid, it returns the entity as is.
+     * 2. If the held `entt` is not valid, it retrieves the entity using the hash value of the specification.
+     * 3. If the hash value of the specification is also unavailable, it reconstructs the entity using the specification.
+     */
     template <typename ProxyEntityType, typename InstanceType>
     struct ProxyRequestor {
     public:
@@ -205,6 +208,19 @@ namespace LEapsGL{
             return h;
         }
 
+        bool operator==(const ProxyRequestor& rhs) {
+            return getHash() == rhs.getHash();
+        }
+        bool operator!=(const ProxyRequestor& rhs) {
+            return !operator==(rhs);
+        }
+        bool operator<(const ProxyRequestor& rhs) {
+            return getHash() < rhs.getHash();
+        }
+        bool operator>(const ProxyRequestor& rhs) {
+            return getHash() > rhs.getHash();
+        }
+
     private:
         friend Proxy;
         friend ProxyTraits;
@@ -237,6 +253,8 @@ namespace LEapsGL{
         size_t packedObject;
     };
 
+    
+
 
     template <class InstanceType>
     struct ProxyPrototypeCounter {
@@ -257,11 +275,11 @@ namespace LEapsGL{
          *        - The Counter object exists: ProxyRequestSpecification::Counter[requestor.getHash]
          */
         template<typename ProxyEntityType, typename InstanceType>
-        static typename ProxyEntityType& assure(const ProxyRequestor<ProxyEntityType, InstanceType>& requestor, bool shouldCreate = true) {
+        static void update_requestor(const ProxyRequestor<ProxyEntityType, InstanceType>& requestor, bool shouldCreate = true) {
             auto& M = ProxyRequestor<ProxyEntityType, InstanceType>::cachedEntity;
             auto& world = Universe::GetWorld<World<ProxyEntityType>>();
 
-            if (world.contains<InstanceType>(requestor.entt)) return requestor.entt;
+            if (world.contains<InstanceType>(requestor.entt));
 
             const size_t h = requestor.getHash();
             requestor.entt = M[h];
@@ -271,17 +289,24 @@ namespace LEapsGL{
                 // creation instance
                 requestor.entt = M[h] = world.Create();
             }
-            return static_cast<ProxyEntityType&>(requestor.entt);
         }
 
         template<typename ProxyEntityType, typename InstanceType>
-        static typename InstanceType& get(const ProxyRequestor<ProxyEntityType, InstanceType>& requestor) {
-            Proxy::assure(requestor);
+        static typename InstanceType& assure(const ProxyRequestor<ProxyEntityType, InstanceType>& requestor) {
+            Proxy::update_requestor(requestor);
             auto& world = Universe::GetWorld<World<ProxyEntityType>>();
             if (!world.contains<InstanceType>(requestor.entt)) world.emplace<InstanceType>(requestor.entt, requestor.generateInstance());
             return world.query<InstanceType>(requestor.entt);
         }
 
+        template<typename ProxyEntityType, typename InstanceType>
+        static typename InstanceType* try_get(const ProxyRequestor<ProxyEntityType, InstanceType>& requestor) {
+            Proxy::update_requestor(requestor, false);
+            auto& world = Universe::GetWorld<World<ProxyEntityType>>();
+            InstanceType* out = nullptr;
+            if (world.contains<InstanceType>(requestor.entt)) out = &world.query<InstanceType>(requestor.entt);
+            return out;
+        }
 
         /**
          * @brief Removes an entity associated with the given ProxyRequestor from the specified map and EnTT world.
@@ -306,7 +331,7 @@ namespace LEapsGL{
             auto& world = Universe::GetWorld<World<ProxyEntityType>>();
 
             // assure() returns an updated requestor
-            Proxy::assure(requestor);
+            Proxy::update_requestor(requestor);
 
             res |= world.remove<InstanceType>(requestor.entt);
             requestor.entt = M[requestor.getHash()] = null_entity{};
@@ -331,7 +356,7 @@ namespace LEapsGL{
          */
         template<typename ProxyEntityType, typename InstanceType>
         static typename InstanceType& update(const ProxyRequestor<ProxyEntityType, InstanceType>& requestor) {
-            return Proxy::get(requestor) = requestor.generateInstance();
+            return Proxy::assure(requestor) = requestor.generateInstance();
         }
 
         template<typename ProxyEntityType, typename InstanceType>
@@ -339,8 +364,8 @@ namespace LEapsGL{
             auto newRequestor(requestor);
             newRequestor.setVersion(++ProxyPrototypeCounter<InstanceType>::version);
 
-            // value copy
-            Proxy::get(newRequestor) = Proxy::get(requestor);
+            // Copy constructor & to rvalue
+            Proxy::assure(newRequestor) = std::move(InstanceType(Proxy::assure(requestor)));
             // Avoid unnecessary object creation at the point of generating the requestor, thus the object creation is commented out.
 //            newRequestor.entt = proxy.emplace<ProxyEntityType, InstanceType>(this->assure<InstanceType>(), newRequestor.getHash(), instance);
             return newRequestor;

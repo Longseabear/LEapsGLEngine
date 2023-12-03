@@ -315,6 +315,8 @@ namespace LEapsGL{
         };
 
         bool remove(const Entity& entt) override {
+            static_assert(std::is_swappable_v<component_type>, "Error");
+
             if (!super::contains(entt)) return false;
 
             CONTAINER_DEBUG_LOG("Removed from component pool : " << std::to_string(traits_type::to_entity(entt)));
@@ -322,7 +324,9 @@ namespace LEapsGL{
             const auto idx = (size_t)this->sparse_get(entt);
             auto out = super::remove(entt);
             if (!out) return false;
-            std::swap(components[idx], components.back());
+
+            swap(components[idx], components.back());
+
             components.pop_back();
             return true;
         }

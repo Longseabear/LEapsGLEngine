@@ -17,8 +17,30 @@ namespace LEapsGL {
                 AnimationController: Manages the flow and control of animations. It oversees the animations within each Frame and provides control over them.
                 Timeline: Represents the animation frames over time and assists in combining multiple Frames and AnimationFrames to create scenarios.
     */
-    class Workspace{
-        
+
+    class LEapsObject {};
+
+    struct LEapsTransferData{
     };
+
+    // all System Serializable object
+    class Serializable : public LEapsObject {
+        // 가상 소멸자 (virtual destructor)
+        virtual ~Serializable() {}
+
+        // 객체를 직렬화하는 가상 함수
+        virtual void serialize(LEapsTransferData& data) const = 0;
+
+        // 직렬화된 문자열을 이용해 객체를 역직렬화하는 가상 함수
+        virtual void deserialize(const LEapsTransferData& data) = 0;
+    };
+
+    //class ComponentExample {
+    //    using entity_type = uint64_t; 
+    //    using container_type = ...; /*Defualt: Dynamic Component Pool*/
+    //        using instance_type = ...;
+    //        using dependency_type = ...;
+    // };
+    
 };
 
