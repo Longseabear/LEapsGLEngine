@@ -60,8 +60,11 @@ namespace LEapsGL {
     };
 
 
+    struct TextureGroup {};
 	class Texture2D : Object {
 	public:
+        using entity_type = LEapsGL::ProxyEntity<TextureGroup>;
+
 		Texture2D() :ID(0), format(GL_RGB), mipmapCount(0), img(){};
 		Texture2D(const Image img);
 		Texture2D(const Texture2D& rhs): Object(){
@@ -133,7 +136,6 @@ namespace LEapsGL {
 
 	Texture2D InitSimpleTexture(Color);
 
-    struct TextureGroup {};
 
     struct TextureSpecification : public LEapsGL::ProxyRequestSpecification<Texture2D> {
         TextureType type;
@@ -144,9 +146,9 @@ namespace LEapsGL {
 
         // Required::
         // ---------------------------------------------
-        using instance_type = Texture2D; // Type of object to create
-        using proxy_group = TextureGroup; // If a group is specified, it is stored in the same world.
+        using component_type = Texture2D; // Type of object to create
         // ---------------------------------------------
+        using instance_type = LEapsGL::traits::to_instance_t<component_type>;
 
         LEapsGL::PathString path;
 
@@ -170,9 +172,10 @@ namespace LEapsGL {
 
         // Required::
         // ---------------------------------------------
-        using instance_type = Texture2D; // Type of object to create
-        using proxy_group = TextureGroup; // If a group is specified, it is stored in the same world.
+        using component_type = Texture2D; // Type of object to create
         // ---------------------------------------------
+        using instance_type = LEapsGL::traits::to_instance_t<component_type>;
+
 
         int width, height, nrchannel;
         LEapsGL::ImageFormat fmt;
@@ -196,7 +199,7 @@ namespace LEapsGL {
     };
 
     struct Texture2DFactory {
-        using RequestorType = LEapsGL::ProxyRequestor<LEapsGL::ProxyEntity<TextureGroup>, Texture2D>;
+        using RequestorType = LEapsGL::ProxyRequestor<Texture2D>;
 
         static auto from_file(const PathString path, TextureType type = TextureType::IMAGE) {
             TextureFromFileSpecification instance;

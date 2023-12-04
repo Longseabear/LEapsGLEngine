@@ -122,7 +122,7 @@ namespace LEapsGL {
         public:
             struct ShaderObjectGroup{};
             using entity_type = LEapsGL::ProxyEntity<ShaderObjectGroup>;
-            using RequestorType = LEapsGL::ProxyRequestor<LEapsGL::ProxyEntity<ShaderObjectGroup>, ShaderObject>;
+            using RequestorType = LEapsGL::ProxyRequestor<ShaderObject>;
 
             /**
              * @brief Default constructor.
@@ -284,9 +284,9 @@ namespace LEapsGL {
             public:
                 // Required::
                 // ---------------------------------------------
-                using instance_type = ShaderObject; // Type of object to create
-                using proxy_group = ShaderObjectGroup; // If a group is specified, it is stored in the same world. (default: Use the default entity, which is dedicated for self-only usage)
+                using component_type = ShaderObject;
                 // ---------------------------------------------
+                using instance_type = traits::to_instance_t<component_type>; // Type of object to create
 
                 PathString path;
 
@@ -306,9 +306,9 @@ namespace LEapsGL {
             public:
                 // Required::
                 // ---------------------------------------------
-                using instance_type = ShaderObject; // Type of object to create
-                using proxy_group = ShaderObjectGroup; // If a group is specified, it is stored in the same world. (default: Use the default entity, which is dedicated for self-only usage)
+                using component_type = ShaderObject;
                 // ---------------------------------------------
+                using instance_type = traits::to_instance_t<component_type>; // Type of object to create
 
                 std::string source_code;
 
@@ -364,7 +364,7 @@ namespace LEapsGL {
     class ShaderProgram {
     public:
         struct ShaderProgramGroup {};
-        using RequestorType = LEapsGL::ProxyRequestor<LEapsGL::ProxyEntity<ShaderProgramGroup>, ShaderProgram>;
+        using RequestorType = LEapsGL::ProxyRequestor<ShaderProgram>;
 
         friend void swap(ShaderProgram& lhs, ShaderProgram& rhs) noexcept {
             using std::swap;
@@ -551,9 +551,9 @@ namespace LEapsGL {
         struct ShaderProgramSpecification : public LEapsGL::ProxyRequestSpecification<ShaderProgram> {
         public:
             // Required::
+            using component_type = ShaderProgram;
             // ---------------------------------------------
-            using instance_type = ShaderProgram; // Type of object to create
-            using proxy_group = ShaderProgramGroup; // If a group is specified, it is stored in the same world. (default: Use the default entity, which is dedicated for self-only usage)
+            using instance_type = traits::to_instance_t<component_type>; // Type of object to create
                             // ---------------------------------------------
 
             LEapsGL::ObjectNameType name;

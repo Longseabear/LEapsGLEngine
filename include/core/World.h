@@ -1,58 +1,130 @@
 #pragma once
 
-#include "entity.h"
-#include "Container.h"
-#include "Type.h"
-#include "System.h"
 #include <unordered_map>
 #include <queue>
+
+#include <core/Core.h>
+#include <core/entity.h>
+#include <core/Container.h>
+#include <core/Type.h>
+#include <core/System.h>
 #include <core/CoreSetting.h>
 
 namespace LEapsGL {
-
-    template <typename T, typename = void>
-    struct EntityTypeSelector {
-        /**
-         * @brief Default entity tpye: from option
-         */
-        using type = typename LEapsGL::BaseEntityType;
+    /*-----------------------------------------------------------------------*/
+    // Component Example..
+    //struct ComponentExample {
+    //    using entity_type = uint64_t; // Dependency<T>, ProxyEntity<T>
+    //    using container_type = ...; /*Defualt: Dynamic Component Pool ...*/ 
+    //          // => ContainerType::Dynamic, ContainerType::Flag, ContainerType::MemoryOptimized, 
+    //    using instance_type = ...; // real instance type
+    // };
+    /*-----------------------------------------------------------------------*/
+    struct ContainerType {
+        struct ContainerTypeBase {};
+        struct MemoryOptimized : public ContainerTypeBase{};
+        struct Flag : public ContainerTypeBase {};
+        struct Default  : public ContainerTypeBase {};
+        struct Dynamic  : public ContainerTypeBase {};
     };
-    template <typename T>
-    struct EntityTypeSelector<T, std::void_t<typename T::entity_type>> {
-        /**
-        * @brief The selected type, which is ProxyEntity<typename T::proxy_group>.
-        */
-        using type = typename T::entity_type;
-    };
-    
-    template <typename T>
-    using EntityTypeSelector_t = typename EntityTypeSelector<T>::type;
+    namespace __internal {
+        template <typename T, typename = void>
+        struct CEntitySelector {
+            using type = LEapsGL::BaseEntityType;
+        };
+
+        template <typename T>
+        struct CEntitySelector<T, std::void_t<typename T::entity_type>> {
+            using type = typename T::entity_type;
+        };
+
+        template <typename T, typename = void>
+        struct CContainerMetaSelector {
+            using type = ContainerType::Default;
+        };
+
+        template <typename T>
+        struct CContainerMetaSelector<T, std::void_t<typename T::container_type>> {
+            using type = typename T::container_type;
+        };
+
+        template <typename T, typename = void>
+        struct IsDefineContainerType : std::false_type {};
+
+        template <typename T>
+        struct IsDefineContainerType<T, std::void_t<typename T::container_type>> : std::true_type {};
+
+        template<typename T>
+        using CEntity_t = typename CEntitySelector<T>::type;
 
 
-    // [Primary key, pointer] 
-    // SubContext must always have a primary key and temperal entity.
-    // It must be possible to create a temperal entity using the primary key.
-    // You should be able to obtain the desired pointer component using the temperal entity.
-    class IContext{
-    };
 
-    /*
-    For global context (e.g., ShaderManager, SoundManager...)
-    */
-    class Context : public Singleton<Context> {
-    public:
-        template <typename CTX>
-        static CTX& getGlobalContext() {
-            constexpr size_t id = get_type_hash<CTX>();
-            auto& ctx = Context::get_instance();
-            auto iter = ctx.M.find(id);
-            if (iter == ctx.M.end()) iter = ctx.M.emplace(id, new CTX{}).first;
-            return *static_cast<CTX*>(iter->second);
-        }
-        std::unordered_map<size_t, IContext*> M;
-    protected:
-        Context() {};
-    };
+
+
+        template <typename T, typename = void>
+        struct CContainerSelector {
+            static_assert (!IsDefineContainerType<T>::value, "Check the container_type failure; ensure that the container type is properly configured.");
+            using type = DefaultComponentPool<T, CEntity_t<T>>;
+        };
+
+        template <typename T>
+        struct CContainerSelector<T, std::enable_if_t<std::is_same_v<typename T::container_type, ContainerType::Default>>> {
+            using type = DefaultComponentPool<T, CEntity_t<T>>;
+        };
+        template <typename T>
+        struct CContainerSelector<T, std::enable_if_t<std::is_same_v<typename T::container_type, ContainerType::Dynamic>>> {
+            using type = DefaultComponentPool<T, CEntity_t<T>>;
+        };
+        template <typename T>
+        struct CContainerSelector<T, std::enable_if_t<std::is_same_v<typename T::container_type, ContainerType::MemoryOptimized>>> {
+            using type = MemoryOptimizedComponentPool<T, CEntity_t<T>>;
+        };
+        template <typename T>
+        struct CContainerSelector<T, std::enable_if_t<std::is_same_v<typename T::container_type, ContainerType::Flag>>> {
+            using type = FlagComponentPool<T, CEntity_t<T>>;
+        };
+    }
+
+    //template <typename ComponentType>
+    //struct component_traits {
+    //    using entity_type = typename __internal::CEntitySelector<ComponentType>::type;
+    //    using instance_type = typename __internal::CInstanceTypeSelector<ComponentType>::type;
+    //};
+
+    namespace traits {
+        template <typename ComponentType>
+        using to_container_t = typename __internal::CContainerSelector<ComponentType>::type;
+        //(e.g.,) LEapsGL::ComponentTraits::to_container_t<ComponentType>;
+
+        template <typename ComponentType>
+        using to_container_meta_t = typename __internal::CContainerMetaSelector<ComponentType>::type;
+
+
+        template <typename ComponentType>
+        using to_entity_t = typename __internal::CEntitySelector<ComponentType>::type;
+        /*
+        template<typename Type, typename Entity>
+        [[nodiscard]] static constexpr decltype(auto) ToComponentPool(const std::shared_ptr<ContainerBase<to_entity_t<ComponentType>>>& ptr) noexcept {
+            return static_cast<DerivedType*>(ptr.get());
+        }*/
+        //template <typename ComponentType>
+        //struct ContainerPoolTratis{
+        //    using BaseType = ContainerBase<traits::to_entity_t<ComponentType>>;
+        //    using DerivedType = traits::to_container_t<ComponentType>;
+
+        //    [[nodiscard]] static constexpr std::shared_ptr<BaseType> CreateShared() noexcept {
+        //        return std::make_shared<DerivedType>();
+        //    }
+        //    [[nodiscard]] static constexpr decltype(auto) ToComponentPool(const std::shared_ptr<BaseType>& ptr) noexcept {
+        //        return static_cast<DerivedType*>(ptr.get());
+        //    }
+        //};
+    }
+
+
+
+    // ------------------------------------------------------------------------
+
     enum class EventPolish {
         DIRECT, AFTER_SYSTEM, AFTER_UPDATE
     };
@@ -78,8 +150,6 @@ namespace LEapsGL {
         using version_type = typename LEapsGL::entity_traits<Entity>::version_type;
 
         using alloc_traits = std::allocator_traits<Allocator>;
-
-        using component_pool_type = LEapsGL::opt::ComponentPoolType;
 
         size_t size() const{
             return entityList.size() - free_entity_num;
@@ -114,20 +184,19 @@ namespace LEapsGL {
         }
 
         template <typename Type>
-        void emplace(const Entity& entt) {
-            using option_traits = OptionSelector<component_pool_type, Type, Entity>;
-            static_assert(option_traits::value == opt::ComponentPoolType::Flag);
+        void emplace(const Entity& entt) {            
+            static_assert(std::is_same_v<typename traits::to_container_meta_t<Type>, ContainerType::Flag>, "The emplace operation is supported only in FlagContainerType. Please ensure that the container type is set to FlagContainerType."  __MY_PRETTY_FUNCTION_SIGNITURE);
             this->assure<Type>().emplace(entt);
         }
 
         template <typename Type>
-        void emplace(const Entity& entt, ComponentTypeSelector_t<std::decay_t<Type>>&& data) {
-            this->assure<Type>().emplace(entt, std::forward<ComponentTypeSelector_t<std::decay_t<Type>>>(data));
+        void emplace(const Entity & entt, traits::to_instance_t<std::decay_t<Type>>&& data) {
+            this->assure<Type>().emplace(entt, std::forward<traits::to_instance_t<std::decay_t<Type>>>(data));
         }
         template <typename Type>
-        void emplace(const Entity& entt, const ComponentTypeSelector_t<std::decay_t<Type>>& data) {
+        void emplace(const Entity& entt, const traits::to_instance_t<std::decay_t<Type>>& data) {
             // Copy construct & to_rvalue;
-            this->emplace<Type>(entt, std::move(ComponentTypeSelector_t<std::decay_t<Type>>(data)));
+            this->emplace<Type>(entt, std::move(traits::to_instance_t<std::decay_t<Type>>(data)));
         }
 
         void clear() {
@@ -161,35 +230,31 @@ namespace LEapsGL {
             auto iter = components.find(id);
             if (iter != components.end()) return iter->second;
 
-            using option_traits = OptionSelector<component_pool_type, Type, Entity>;
-            return components[id] = option_traits::CreateShared();
+            return components[id] = std::make_shared<traits::to_container_t<Type>>();
         }
 
         template <typename Type>
         auto* get() {
-            constexpr size_t id = get_type_hash<Type>();
-            using option_traits = OptionSelector<component_pool_type, Type, Entity>;
-            return option_traits::ToComponentPool(components[id]);
+            constexpr size_t id = get_type_hash<Type>();            
+            return static_cast<traits::to_container_t<Type>*>(components[id].get());
         }
 
         // Query component type
         template <typename Type>
-        ComponentTypeSelector_t<std::decay_t<Type>>& query(const Entity & entt) {
+        traits::to_instance_t<std::decay_t<Type>>& query(const Entity & entt) {
             return this->get<Type>()->get(entt);
         }
 
         template <typename Type>
         auto& assure() {
             constexpr size_t id = get_type_hash<Type>();
-            using option_traits = OptionSelector<component_pool_type, Type, Entity>;
-            return *option_traits::ToComponentPool(this->assureComponent<Type>());
+            return *static_cast<traits::to_container_t<Type>*>(this->assureComponent<Type>().get());
         }
 
         
         template <typename... Types, typename... FilterType>
-        View<W_ComponentPool<typename OptionSelector<component_pool_type, Types, Entity>::template DerivedType...>,
-        Filter<typename OptionSelector<component_pool_type, FilterType, Entity>::template DerivedType...>> view(Filter<FilterType...> tmp = Filter<>{}) {
-            static_assert((std::is_same_v<Entity, EntityTypeSelector_t<Types>> && ...), ": All types within the View must be associated with the same entity system." 
+        View<W_ComponentPool<traits::to_container_t<Types>...>, Filter<traits::to_container_t<FilterType>...>> view(Filter<FilterType...> tmp = Filter<>{}) {
+            static_assert((std::is_same_v<Entity, traits::to_entity_t<Types>> && ...), ": All types within the View must be associated with the same entity system." 
                 ">>>Class Information: "
                 __FUNCTION__
                 ">>>Function Information "
@@ -204,8 +269,13 @@ namespace LEapsGL {
         size_t free_entity_id;
     };
 
-    using ComponentOpt = LEapsGL::opt::ComponentPoolType;
     using BaseWorld = LEapsGL::World<LEapsGL::BaseEntityType>;
+
+    namespace traits {
+        template <typename ComponentType>
+        using to_world_t = typename LEapsGL::World<traits::to_entity_t<ComponentType>>;
+    }
+
 
     class Universe : public Singleton<Universe> {
     public:
@@ -217,8 +287,8 @@ namespace LEapsGL {
 
         template<typename... Types>
         static auto& GetRelativeWorld() {
-            using entity_type = std::common_type_t<EntityTypeSelector_t<Types>...>;
-            static_assert((std::is_same_v<entity_type, EntityTypeSelector_t<Types>> && ...), "All entities must share the same entity system to be obtained.");
+            using entity_type = std::common_type_t<traits::to_entity_t<Types>...>;
+            static_assert((std::is_same_v<entity_type, traits::to_entity_t<Types>> && ...), "All entities must share the same entity system to be obtained.");
             return Context::getGlobalContext<World<entity_type>>();
         }
 

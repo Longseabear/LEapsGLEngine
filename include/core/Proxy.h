@@ -26,7 +26,6 @@ namespace LEapsGL{
         // Required::
         // ---------------------------------------------
         using instance_type = Texture2D; // Type of object to create
-        using proxy_group = TextureGroup; // If a group is specified, it is stored in the same world. (default: Use the default entity, which is dedicated for self-only usage)
         // ---------------------------------------------
 
         int sample = 0;
@@ -45,11 +44,14 @@ namespace LEapsGL{
     // --------------------
     // 1) <entity_type, instance_type>::cache...
 
-    template <typename instance_type>
+    template <typename ComponentType>
     struct ProxyRequestSpecification{
-        using BaseSpec = ProxyRequestSpecification<instance_type>;
+        using instance_type = traits::to_instance_t<ComponentType>;
+        using BaseSpec = ProxyRequestSpecification<ComponentType>;
         using baseSpecPtr = std::unique_ptr<BaseSpec>;
         static inline std::unordered_map<size_t, std::pair<baseSpecPtr, int>> Counter;
+
+        static inline size_t totalVersion = 0;
 
         inline static void increasement(const size_t x) {
             BaseSpec::Counter[x].second++;
@@ -81,7 +83,6 @@ namespace LEapsGL{
     namespace __internal {
         class ProxyEntityBase {
         public:
-
             using entity_type = std::uint32_t;
 
             constexpr ProxyEntityBase(const entity_type& d) : id(d) {};
@@ -106,41 +107,7 @@ namespace LEapsGL{
         }
     };
 
-
-    /**
-     * @brief Template struct to select the proxy group type based on the presence of `proxy_group` member.
-     *
-     * If `T` has a member type named `proxy_group`, it is used as the selected type.
-     * Otherwise, the type is selected as `ProxyEntity<typename T::instance_type>`.
-     *
-     * @tparam T The type for which to select the proxy group type.
-     * @tparam VoidType (Internal) Used for SFINAE to check the existence of `T::proxy_group`.
-     */
-    template <typename T, typename = void>
-    struct ProxyGroupTypeSelector {
-        /**
-         * @brief The selected type, which is ProxyEntity<typename T::instance_type>.
-         */
-        using type = typename ProxyEntity<typename T::instance_type>;
-    };
-
-    /**
-     * @brief Specialization of ProxyGroupTypeSelector when T::proxy_group is present.
-     *
-     * In this case, `T::proxy_group` is used as the selected type.
-     *
-     * @tparam T The type for which to select the proxy group type.
-     */
-    template <typename T>
-    struct ProxyGroupTypeSelector<T, std::void_t<typename T::proxy_group>> {
-        /**
-        * @brief The selected type, which is ProxyEntity<typename T::proxy_group>.
-        */
-        using type = ProxyEntity<typename T::proxy_group>;
-    };
-
-
-    template <typename ProxyEntityType, typename InstanceType>
+    template <typename ComponentType>
     class ProxyRequestor;
 
     class ProxyTraits{
@@ -148,9 +115,9 @@ namespace LEapsGL{
         template<typename Specification>
         static inline auto Get(Specification spec) {
             using Specification_type = Specification;
-            using instance_type = typename Specification::instance_type;
-            using proxy_entity_type = typename ProxyGroupTypeSelector<Specification>::type;
-            using BasePtrType = ProxyRequestSpecification<instance_type>;
+            using component_type = typename Specification::component_type;
+            using instance_type = typename traits::to_instance_t<component_type>;
+            using BasePtrType = ProxyRequestSpecification<component_type>;
 
             auto& Counter = BasePtrType::Counter;
 
@@ -158,10 +125,10 @@ namespace LEapsGL{
             auto iter = Counter.find(h);
             if (iter == Counter.end()) {
                 iter = Counter.emplace(h, std::make_pair(std::make_unique<Specification>(spec), 0)).first;
-                ProxyRequestor<proxy_entity_type, instance_type>::cachedEntity[h] = null_entity{};
+                ProxyRequestor<component_type>::cachedEntity[h] = null_entity{};
             }
 
-            return ProxyRequestor<proxy_entity_type, instance_type>(h, 0);
+            return ProxyRequestor<component_type>(h, 0);
         }
     };
 
@@ -172,12 +139,12 @@ namespace LEapsGL{
      * 2. If the held `entt` is not valid, it retrieves the entity using the hash value of the specification.
      * 3. If the hash value of the specification is also unavailable, it reconstructs the entity using the specification.
      */
-    template <typename ProxyEntityType, typename InstanceType>
+    template <typename ComponentType>
     struct ProxyRequestor {
     public:
-        using proxy_entity_type = typename ProxyEntityType; 
-        using instance_type = typename InstanceType;
-        using BaseSpecType = ProxyRequestSpecification<instance_type>;
+        using proxy_entity_type = typename traits::to_entity_t<ComponentType>; 
+        using instance_type = typename traits::to_instance_t<ComponentType>;
+        using BaseSpecType = ProxyRequestSpecification<ComponentType>;
 
         friend void swap(ProxyRequestor& lhs, ProxyRequestor& rhs) noexcept {
             using std::swap;
@@ -230,9 +197,6 @@ namespace LEapsGL{
 
         const ProxyRequestor(size_t packed, uint32_t ver) : entt(LEapsGL::null_entity{}), packedObject(packed), version(ver){
             BaseSpecType::increasement(packedObject);
-
-            version = 0;
-
         }
         void setVersion(size_t ver) {
             this->version = ver;
@@ -256,14 +220,6 @@ namespace LEapsGL{
     
 
 
-    template <class InstanceType>
-    struct ProxyPrototypeCounter {
-        static inline size_t version = 0;
-    };
-
-
-
-
     // Change Specification to entity.
     class Proxy : public IContext{
     public:
@@ -274,37 +230,37 @@ namespace LEapsGL{
          *        - The associated cached Entt (requestor.getHash()) exists: Requestor::cachedEntt[requestor.getHash]
          *        - The Counter object exists: ProxyRequestSpecification::Counter[requestor.getHash]
          */
-        template<typename ProxyEntityType, typename InstanceType>
-        static void update_requestor(const ProxyRequestor<ProxyEntityType, InstanceType>& requestor, bool shouldCreate = true) {
-            auto& M = ProxyRequestor<ProxyEntityType, InstanceType>::cachedEntity;
-            auto& world = Universe::GetWorld<World<ProxyEntityType>>();
+        template<typename ComponentType>
+        static void update_requestor(const ProxyRequestor<ComponentType>& requestor, bool shouldCreate = true) {
+            auto& M = ProxyRequestor<ComponentType>::cachedEntity;
+            auto& world = Universe::GetWorld<traits::to_world_t<ComponentType>>();
 
-            if (world.contains<InstanceType>(requestor.entt));
+            if (world.contains<ComponentType>(requestor.entt)) return;
 
             const size_t h = requestor.getHash();
             requestor.entt = M[h];
 
             // 3) from world
-            if (shouldCreate && !world.contains<InstanceType>(requestor.entt)) {
+            if (shouldCreate && !world.contains<ComponentType>(requestor.entt)) {
                 // creation instance
                 requestor.entt = M[h] = world.Create();
             }
         }
 
-        template<typename ProxyEntityType, typename InstanceType>
-        static typename InstanceType& assure(const ProxyRequestor<ProxyEntityType, InstanceType>& requestor) {
+        template<typename ComponentType>
+        static typename traits::to_instance_t<ComponentType>& assure(const ProxyRequestor<ComponentType>& requestor) {
             Proxy::update_requestor(requestor);
-            auto& world = Universe::GetWorld<World<ProxyEntityType>>();
-            if (!world.contains<InstanceType>(requestor.entt)) world.emplace<InstanceType>(requestor.entt, requestor.generateInstance());
-            return world.query<InstanceType>(requestor.entt);
+            auto& world = Universe::GetWorld<typename traits::to_world_t<ComponentType>>();
+            if (!world.contains<ComponentType>(requestor.entt)) world.emplace<ComponentType>(requestor.entt, requestor.generateInstance());
+            return world.query<ComponentType>(requestor.entt);
         }
 
-        template<typename ProxyEntityType, typename InstanceType>
-        static typename InstanceType* try_get(const ProxyRequestor<ProxyEntityType, InstanceType>& requestor) {
+        template<typename ComponentType>
+        static typename traits::to_instance_t<ComponentType>* try_get(const ProxyRequestor<ComponentType>& requestor) {
             Proxy::update_requestor(requestor, false);
-            auto& world = Universe::GetWorld<World<ProxyEntityType>>();
-            InstanceType* out = nullptr;
-            if (world.contains<InstanceType>(requestor.entt)) out = &world.query<InstanceType>(requestor.entt);
+            auto& world = Universe::GetWorld<typename traits::to_world_t<ComponentType>>();
+            traits::to_instance_t<ComponentType>* out = nullptr;
+            if (world.contains<ComponentType>(requestor.entt)) out = &world.query<ComponentType>(requestor.entt);
             return out;
         }
 
@@ -324,16 +280,16 @@ namespace LEapsGL{
          * 3) If the entity is not found or removal from the EnTT world fails, false is returned.
          * 4) After removal, the ProxyRequestor's entt is set to `null_entity{}`.
          */
-        template<typename ProxyEntityType, typename InstanceType>
-        static typename bool remove(const ProxyRequestor<ProxyEntityType, InstanceType>& requestor) {
+        template<typename ComponentType>
+        static typename bool remove(const ProxyRequestor<ComponentType>& requestor) {
             bool res = false;
-            auto& M = ProxyRequestor<ProxyEntityType, InstanceType>::cachedEntity;
-            auto& world = Universe::GetWorld<World<ProxyEntityType>>();
+            auto& M = ProxyRequestor<ComponentType>::cachedEntity;
+            auto& world = Universe::GetWorld<typename traits::to_world_t<ComponentType>>();
 
             // assure() returns an updated requestor
             Proxy::update_requestor(requestor);
 
-            res |= world.remove<InstanceType>(requestor.entt);
+            res |= world.remove<ComponentType>(requestor.entt);
             requestor.entt = M[requestor.getHash()] = null_entity{};
             return res;
         }
@@ -354,34 +310,33 @@ namespace LEapsGL{
          * @note
          * The name 'update' is appropriate as it clearly conveys the intention of modifying the component value.
          */
-        template<typename ProxyEntityType, typename InstanceType>
-        static typename InstanceType& update(const ProxyRequestor<ProxyEntityType, InstanceType>& requestor) {
+        template<typename ComponentType>
+        static typename traits::to_instance_t<ComponentType>& update(const ProxyRequestor<ComponentType>& requestor) {
             return Proxy::assure(requestor) = requestor.generateInstance();
         }
 
-        template<typename ProxyEntityType, typename InstanceType>
-        static ProxyRequestor<ProxyEntityType, InstanceType> prototype(const ProxyRequestor<ProxyEntityType, InstanceType>& requestor) {
+        template<typename ComponentType>
+        static ProxyRequestor<ComponentType> prototype(const ProxyRequestor<ComponentType>& requestor) {
             auto newRequestor(requestor);
-            newRequestor.setVersion(++ProxyPrototypeCounter<InstanceType>::version);
+            newRequestor.setVersion(++ProxyRequestSpecification<ComponentType>::totalVersion);
 
             // Copy constructor & to rvalue
-            Proxy::assure(newRequestor) = std::move(InstanceType(Proxy::assure(requestor)));
+            Proxy::assure(newRequestor) = std::move(traits::to_instance_t<ComponentType>(Proxy::assure(requestor)));
             // Avoid unnecessary object creation at the point of generating the requestor, thus the object creation is commented out.
 //            newRequestor.entt = proxy.emplace<ProxyEntityType, InstanceType>(this->assure<InstanceType>(), newRequestor.getHash(), instance);
             return newRequestor;
         }
  
-        template<typename ProxyEntityType, typename InstanceType>
-        static auto& GetWorld(const ProxyRequestor<ProxyEntityType, InstanceType>& requestor) {
-            auto& world = Universe::GetWorld<World<ProxyEntityType>>();
+        template<typename ComponentType>
+        static auto& GetWorld(const ProxyRequestor<ComponentType>& requestor) {
+            auto& world = Universe::GetWorld<typename traits::to_world_t<ComponentType>>();
             return world;
         }
 
-        template <typename ProxyEntityType>
+        template <typename ComponentType>
         static auto& GetWorld() {
-            auto& world = Universe::GetWorld<World<ProxyEntityType>>();
+            auto& world = Universe::GetWorld<typename traits::to_world_t<ComponentType>>();
             return world;
         }
-
     };
 }

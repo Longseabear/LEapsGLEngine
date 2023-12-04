@@ -39,23 +39,42 @@ namespace LEapsGL{
     constexpr size_t pageBits = 12;
     constexpr size_t pageMask = (1 << 12) - 1;
 
-    template <typename T, typename = void>
-    struct ComponentTypeSelector {
-        /**
-         * @brief Default component type = component itself.
-         */
-        using type = typename T;
-    };
-    template <typename T>
-    struct ComponentTypeSelector<T, std::void_t<typename T::component_type>> {
-        /**
-        * @brief The selected type(component type)
-        */
-        using type = typename T::component_type;
-    };
 
-    template <typename T>
-    using ComponentTypeSelector_t = typename ComponentTypeSelector<T>::type;
+    namespace __internal {
+        template <typename T, typename = void>
+        struct CInstanceTypeSelector {
+            using type = T;
+        };
+
+        template <typename T>
+        struct CInstanceTypeSelector<T, std::void_t<typename T::instance_type>> {
+            using type = typename T::instance_type;
+        };
+    }
+
+    namespace traits {
+        template<typename T>
+        using to_instance_t = typename __internal::CInstanceTypeSelector<T>::type;
+    }
+
+
+    //template <typename T, typename = void>
+    //struct ComponentTypeSelector {
+    //    /**
+    //     * @brief Default component type = component itself.
+    //     */
+    //    using type = typename T;
+    //};
+    //template <typename T>
+    //struct ComponentTypeSelector<T, std::void_t<typename T::component_type>> {
+    //    /**
+    //    * @brief The selected type(component type)
+    //    */
+    //    using type = typename T::component_type;
+    //};
+
+    //template <typename T>
+    //using ComponentTypeSelector_t = typename ComponentTypeSelector<T>::type;
 
     // simple sparse
 
@@ -220,15 +239,15 @@ namespace LEapsGL{
 
     template<typename Entity, typename Type>
     struct ComponentPoolIterator {
-        using component_type = LEapsGL::ComponentTypeSelector_t<typename Type>;
+        using instance_type = traits::to_instance_t<typename Type>;
 
     private:
         int curIdx;
         vector<Entity>* packed;
-        vector<component_type>* components;
+        vector<instance_type>* components;
 
     public:
-        ComponentPoolIterator(vector<Entity>* _packed, vector<component_type>* _components, int idx = 0) : packed{ _packed }, components{ _components }, curIdx(idx) {};
+        ComponentPoolIterator(vector<Entity>* _packed, vector<instance_type>* _components, int idx = 0) : packed{ _packed }, components{ _components }, curIdx(idx) {};
         ComponentPoolIterator& operator++() {
             curIdx++;
             return *this;
@@ -238,7 +257,7 @@ namespace LEapsGL{
             ++(*this);
             return tmp;
         }
-        tuple<const Entity, component_type&> operator*() {
+        tuple<const Entity, instance_type&> operator*() {
             return std::tuple_cat(
                 std::make_tuple((*packed)[curIdx]),
                 std::forward_as_tuple((*components)[curIdx])
@@ -255,15 +274,15 @@ namespace LEapsGL{
 
     template<typename Entity, typename Type>
     struct ComponentPoolConstIterator {
-        using component_type = typename LEapsGL::ComponentTypeSelector_t<Type>;
+        using instance_type = typename traits::to_instance_t<Type>;
 
     private:
         int curIdx;
         vector<Entity>* packed;
-        vector<component_type>* components;
+        vector<instance_type>* components;
 
     public:
-        ComponentPoolConstIterator(vector<Entity>* _packed, vector<component_type>* _components, int idx = 0) : packed{ _packed }, components{ _components }, curIdx(idx) {};
+        ComponentPoolConstIterator(vector<Entity>* _packed, vector<instance_type>* _components, int idx = 0) : packed{ _packed }, components{ _components }, curIdx(idx) {};
         ComponentPoolConstIterator& operator++() {
             curIdx++;
             return *this;
@@ -273,7 +292,7 @@ namespace LEapsGL{
             ++(*this);
             return tmp;
         }
-        ComponentPoolConstIterator<const Entity, component_type&> operator*() const {
+        ComponentPoolConstIterator<const Entity, instance_type&> operator*() const {
             return std::tuple_cat(
                 std::make_tuple((*packed)[curIdx]),
                 std::forward_as_tuple((*components)[curIdx])
@@ -288,7 +307,7 @@ namespace LEapsGL{
         }
     };
 
-    template <typename Type, typename Entity, typename Allocator = std::allocator<typename ComponentTypeSelector_t<Type>>>
+    template <typename Type, typename Entity, typename Allocator = std::allocator<typename traits::to_instance_t<Type>>>
     class DefaultComponentPool : public sparse_array<Entity, typename std::allocator_traits<Allocator>::template rebind_alloc<Entity>> {
         using alloc_traits = std::allocator_traits<Allocator>;
     public:
@@ -297,25 +316,26 @@ namespace LEapsGL{
         using entity_type = typename LEapsGL::entity_traits<Entity>::entity_type;
         using version_type = typename LEapsGL::entity_traits<Entity>::version_type;
         using super = sparse_array<Entity, typename std::allocator_traits<Allocator>::template rebind_alloc<Entity>>;
-        using component_type = typename LEapsGL::ComponentTypeSelector_t<Type>;
-
-        std::tuple<component_type&> get_as_tuple(const Entity& entt) {
+        using instance_type = typename traits::to_instance_t<Type>;
+        
+        std::tuple<instance_type&> get_as_tuple(const Entity& entt) {
             return std::forward_as_tuple(get(entt));
         }
-        std::tuple<const component_type&> get_as_tuple(const Entity& entt) const {
+        std::tuple<const instance_type&> get_as_tuple(const Entity& entt) const {
             return std::forward_as_tuple(get(entt));
         }
-        component_type& get(const Entity& entt) {
+        instance_type& get(const Entity& entt) {
             return components[(size_t)traits_type::to_entity(super::sparse_get(entt))];
         }
 
-        void emplace(const value_type& entt, component_type&& arg) {
+        void emplace(const value_type& entt, instance_type&& arg) {
             super::emplace(entt);
-            components.emplace_back(std::forward<component_type>(arg));
+            components.emplace_back(std::forward<instance_type>(arg));
         };
 
         bool remove(const Entity& entt) override {
-            static_assert(std::is_swappable_v<component_type>, "Error");
+            using std::swap;
+            static_assert(std::is_swappable_v<instance_type>, "Error");
 
             if (!super::contains(entt)) return false;
 
@@ -331,8 +351,8 @@ namespace LEapsGL{
             return true;
         }
 
-        using iterator = ComponentPoolIterator<Entity, component_type>;
-        using const_iterator = ComponentPoolConstIterator<Entity, component_type>;
+        using iterator = ComponentPoolIterator<Entity, instance_type>;
+        using const_iterator = ComponentPoolConstIterator<Entity, instance_type>;
         iterator begin() {
             return iterator(&this->packed, &components, 0);
         }
@@ -346,10 +366,10 @@ namespace LEapsGL{
             return const_iterator(&this->packed, &components, 0);
         }
     private:
-        vector<component_type> components;
+        vector<instance_type> components;
     };
 
-    template <typename Type, typename Entity, typename Allocator = std::allocator<typename ComponentTypeSelector_t<Type>>>
+    template <typename Type, typename Entity, typename Allocator = std::allocator<typename traits::to_instance_t<Type>>>
     class MemoryOptimizedComponentPool : public sparse_array<Entity, typename std::allocator_traits<Allocator>::template rebind_alloc<Entity>> {
         using alloc_traits = std::allocator_traits<Allocator>;
     public:
@@ -359,26 +379,26 @@ namespace LEapsGL{
         using version_type = typename LEapsGL::entity_traits<Entity>::version_type;
         using super = sparse_array<Entity, typename std::allocator_traits<Allocator>::template rebind_alloc<Entity>>;
 
-        using component_type = typename LEapsGL::ComponentTypeSelector_t<Type>;
+        using instance_type = typename traits::to_instance_t<Type>;
 
-        std::tuple<component_type&> get_as_tuple(const Entity& entt) {
+        std::tuple<instance_type&> get_as_tuple(const Entity& entt) {
             return std::forward_as_tuple(get(entt));
         }
-        std::tuple<const component_type&> get_as_tuple(const Entity& entt) const {
+        std::tuple<const instance_type&> get_as_tuple(const Entity& entt) const {
             return std::forward_as_tuple(get(entt));
         }
         // -------------------------------------------------
         // Container pool interface
-        component_type& get(const Entity& entt) {
+        instance_type& get(const Entity& entt) {
             return components[(size_t)get_index(entt)];
         }
         bool contains(const Entity& entt) {
             for (const auto& x : this->packed) if (x == entt) return true;
             return false;
         }
-        void emplace(const Entity& entt, component_type&& arg) {
+        void emplace(const Entity& entt, instance_type&& arg) {
             this->packed.emplace_back(entt);
-            components.emplace_back(std::forward<component_type>(arg));
+            components.emplace_back(std::forward<instance_type>(arg));
         };
         bool remove(const Entity& entt) override {
             if (!contains(entt)) return false;
@@ -393,8 +413,8 @@ namespace LEapsGL{
             return true;
         }
         // -------------------------------------------------
-        using iterator = ComponentPoolIterator<Entity, component_type>;
-        using const_iterator = ComponentPoolConstIterator<Entity, component_type>;
+        using iterator = ComponentPoolIterator<Entity, instance_type>;
+        using const_iterator = ComponentPoolConstIterator<Entity, instance_type>;
         iterator begin() {
             return iterator(&this->packed, &components, 0);
         }
@@ -412,10 +432,10 @@ namespace LEapsGL{
             for (size_t i = 0; i < this->packed.size(); i++) if (entt == this->packed[i]) return i;
             assert(false, "get_index should guarantee the presence of data.");
         }
-        vector<component_type> components;
+        vector<instance_type> components;
     };
 
-    template <typename Type, typename Entity, typename Allocator = std::allocator<typename ComponentTypeSelector_t<Type>>>
+    template <typename Type, typename Entity, typename Allocator = std::allocator<typename traits::to_instance_t<Type>>>
     class FlagComponentPool : public sparse_array<Entity, typename std::allocator_traits<Allocator>::template rebind_alloc<Entity>> {
         using alloc_traits = std::allocator_traits<Allocator>;
     public:
@@ -559,7 +579,7 @@ namespace LEapsGL{
         using traits_type = LEapsGL::entity_traits<Entity>;
 
         template<typename T>
-        static constexpr std::size_t index_of = type_index<T, std::tuple <typename ComponentPoolTypes::component_type...>>::value;
+        static constexpr std::size_t index_of = type_index<T, std::tuple <typename ComponentPoolTypes::instance_type...>>::value;
 
         // The set with the smallest element
         const super_type* view;
@@ -619,7 +639,7 @@ namespace LEapsGL{
             if constexpr (IS_COMPONENT_VIEW) {
                 for (const auto items : *std::get<BaseIndex>(containers_)) {
                     if (const auto entt = std::get<0>(items); ((BaseIndex == Index || std::get<Index>(containers_)->contains(entt)) && ...) && (std::get<FilterIndex>(filters_)->contains(entt) && ...)) {
-                        if constexpr (std::is_invocable<decltype(fn), std::add_lvalue_reference<ComponentPoolTypes::component_type>::type...>::value) {
+                        if constexpr (std::is_invocable<decltype(fn), std::add_lvalue_reference<ComponentPoolTypes::instance_type>::type...>::value) {
                             std::apply(fn, std::tuple_cat(this->dispatch_get<BaseIndex, Index>(items)...));
                         }
                         else {
@@ -631,7 +651,7 @@ namespace LEapsGL{
             else {
                 for (const auto items : *std::get<BaseIndex>(filters_)) {
                     if (const auto entt = std::get<0>(items); ((std::get<Index>(containers_)->contains(entt)) && ...) && ((BaseIndex == FilterIndex || std::get<FilterIndex>(filters_)->contains(entt)) && ...)) {
-                        if constexpr (std::is_invocable<decltype(fn), std::add_lvalue_reference<ComponentPoolTypes::component_type>::type...>::value) {
+                        if constexpr (std::is_invocable<decltype(fn), std::add_lvalue_reference<ComponentPoolTypes::instance_type>::type...>::value) {
                             std::apply(fn, std::tuple_cat(this->dispatch_get<sizeof...(Index), Index>(items)...));
                         }
                         else {
@@ -795,4 +815,5 @@ namespace LEapsGL{
         using MemoryOptimized = LEapsGL::opt::IOptionComponentPoolType<LEapsGL::opt::ComponentPoolType::MemoryOptimized>;
         using Flag = LEapsGL::opt::IOptionComponentPoolType<LEapsGL::opt::ComponentPoolType::Flag>;
     }
+
 }
