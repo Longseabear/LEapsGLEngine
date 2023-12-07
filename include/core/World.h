@@ -251,7 +251,6 @@ namespace LEapsGL {
             return *static_cast<traits::to_container_t<Type>*>(this->assureComponent<Type>().get());
         }
 
-        
         template <typename... Types, typename... FilterType>
         View<W_ComponentPool<traits::to_container_t<Types>...>, Filter<traits::to_container_t<FilterType>...>> view(Filter<FilterType...> tmp = Filter<>{}) {
             static_assert((std::is_same_v<Entity, traits::to_entity_t<Types>> && ...), ": All types within the View must be associated with the same entity system." 

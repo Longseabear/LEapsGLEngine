@@ -77,11 +77,6 @@ using namespace std;
 inline char infoLog[1024];
 namespace LEapsGL {
     class ShaderManager;
-    enum ShaderObjectSource {
-        FROM_FILE, FROM_BINARY, FROM_ENTITY
-    };
-
-    using ShaderProgramIdentifier = FixedString<SHADER_ShaderProgramNameMaxLen>;
 
     //enum class ShaderProgramEntity : std::uint64_t {};
     using ShaderProgramEntity = std::uint64_t;
@@ -392,7 +387,6 @@ namespace LEapsGL {
          *
          * @param c The ShaderProgramObject to use as the program's name.
          */
-        ShaderProgram(ShaderProgramIdentifier identifier) : programID(0) {}
 
 
         // Copy Constructor
