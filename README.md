@@ -50,7 +50,54 @@ To integrate LEaps ECS into your project:
 
 4. Leverage the sparse table architecture for efficient memory usage and improved performance.
 
-Refer to documentation and examples for detailed instructions on using LEaps ECS in your application.
+### Example Usage
+
+```cpp
+#include "pch.h"
+#include "core/World.h"
+#include "core/Container.h"
+#include "core/entity.h"
+#include "core/Type.h"
+#include "core/System.h"
+
+struct Position {
+    int x, y;
+};
+
+struct PositionDelta {
+    using instance_type = int;
+};
+
+TEST(SimpleExample, SimpleTutorial) {
+    // Create a world instance with Position components
+    auto& world = LEapsGL::Universe::GetRelativeWorld<Position>();
+
+    // Create entities and assign Position components
+    for (int i = 0; i < 10; i++) {
+        auto entt = world.Create();
+        world.emplace<Position>(entt, Position{ i, i + 1 });
+        if (i % 2 == 0) 
+            world.emplace<PositionDelta>(entt, i);
+    }
+
+    // Access entities with both Position and PositionDelta components
+    auto view = world.view<Position, PositionDelta>();
+    view.each([](auto& position, auto& delta) {
+        cout << "Next position: " << (position.x + delta) << " " << (position.y + delta) << "\n";
+    });
+
+    // Output
+    /*
+        Next position: 0 1
+        Next position: 4 5
+        Next position: 8 9
+        Next position: 12 13
+        Next position: 16 17
+    */
+}
+```
+
+Feel free to explore and modify this example to suit your application's needs. Refer to the documentation for more advanced usage and features of LEaps ECS Pattern.
 
 ## Conclusion
 
