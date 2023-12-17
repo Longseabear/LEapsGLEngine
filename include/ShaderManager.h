@@ -180,18 +180,6 @@ namespace LEapsGL {
                 return *this;
             }
 
-            /**
-             * @brief Move assignment operator.
-             *
-             * Moves the contents of another shader object.
-             *
-             * @param rhs The shader object to move.
-             * @return A reference to the current shader object.
-             */
-            ShaderObject& operator=(ShaderObject&& rhs) noexcept {
-                swap(*this, rhs);
-                return *this;
-            }
 
             /**
              * @brief Destructor.

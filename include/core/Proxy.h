@@ -222,9 +222,7 @@ namespace LEapsGL{
 
     // Change Specification to entity.
     class Proxy : public IContext{
-    public:
-        using SpecificationToEnttMap = std::unordered_map<size_t, __internal::ProxyEntityBase>;
-
+    private:
         /**
          * @brief Ensures the following for the given requestor:
          *        - The associated cached Entt (requestor.getHash()) exists: Requestor::cachedEntt[requestor.getHash]
@@ -246,6 +244,8 @@ namespace LEapsGL{
                 requestor.entt = M[h] = world.Create();
             }
         }
+    public:
+        using SpecificationToEnttMap = std::unordered_map<size_t, __internal::ProxyEntityBase>;
 
         template<typename ComponentType>
         static typename traits::to_instance_t<ComponentType>& assure(const ProxyRequestor<ComponentType>& requestor) {
