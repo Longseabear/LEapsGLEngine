@@ -1,5 +1,6 @@
 # LEaps ECS Pattern
 
+
 ## Overview
 
 ### What is ECS?
@@ -11,6 +12,25 @@ Entity-Component-System (ECS) is a design pattern widely used in software develo
 2. **Components:** Data containers holding specific attributes or behaviors, describing properties of an entity.
 
 3. **System:** Manages logic and behavior of entities based on their components, processing entities with specific combinations.
+
+## Main Feature (December 2023)
+![Render example](doc/example_render.png)
+
+### Mesh object Loading and Rendering
+
+- **ECS Architecture Implementation**
+- **Lighting Solutions**
+- **3D File(.obj) Loading and Rendering**
+
+<br>
+
+![이미지 설명](doc/hot_compile.gif)
+### Dynamic Shader Compilation
+
+- **Shader Hot Compiling for Editor**
+- **Dynamic shader program optimization**
+
+
 
 ## LEaps ECS Pattern
 
